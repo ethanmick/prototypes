@@ -61,6 +61,55 @@ const setupIpcHandlers = () => {
       }
     }
   )
+
+  ipcMain.handle(
+    IPC_CHANNELS.STREAM_RESPONSE,
+    async (event, content: string, responseChannel: string) => {
+      // Simulate processing the content and streaming back chunks
+      const words = content.split(' ')
+
+      try {
+        // Simulate streaming response with different delays
+        for (const word of words) {
+          await sleep(Math.random() * 500 + 100) // Random delay between 100-600ms
+          event.sender.send(responseChannel, {
+            type: 'chunk',
+            content: word + ' ',
+          })
+        }
+
+        // Add some "thinking" phrases
+        const phrases = [
+          '\n\nAnalyzing further...\n',
+          'Processing your input...\n',
+          'Generating response...\n',
+        ]
+
+        for (const phrase of phrases) {
+          await sleep(800)
+          event.sender.send(responseChannel, {
+            type: 'chunk',
+            content: phrase,
+          })
+        }
+
+        // Final response
+        await sleep(1000)
+        event.sender.send(responseChannel, {
+          type: 'chunk',
+          content: '\n\nStream completed successfully!',
+        })
+
+        // Mark as done
+        event.sender.send(responseChannel, { type: 'done' })
+      } catch (error) {
+        event.sender.send(responseChannel, {
+          type: 'chunk',
+          error: error instanceof Error ? error.message : 'Unknown error',
+        })
+      }
+    }
+  )
 }
 
 const createWindow = () => {
