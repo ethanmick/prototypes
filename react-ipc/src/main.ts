@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import started from 'electron-squirrel-startup'
 import path from 'node:path'
-import { AppInfo, IPC_CHANNELS, IpcResponse } from './lib/ipc'
+import { AppInfo, IPC_CHANNELS, IpcResponse, PokemonInfo } from './lib/ipc'
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -27,6 +27,36 @@ const setupIpcHandlers = () => {
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Unknown error',
+        }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.GET_POKEMON_INFO,
+    async (_, pokemonName: string): Promise<IpcResponse<PokemonInfo>> => {
+      try {
+        const response = await fetch(
+          `https://pokeapi.co/api/v2/pokemon/${pokemonName}`
+        )
+        if (!response.ok) {
+          throw new Error(`Pokemon '${pokemonName}' not found`)
+        }
+        const data = await response.json()
+
+        const pokemonInfo: PokemonInfo = {
+          id: data.id,
+          name: data.name,
+        }
+
+        return { success: true, data: pokemonInfo }
+      } catch (error) {
+        return {
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : 'Failed to fetch Pokemon info',
         }
       }
     }
