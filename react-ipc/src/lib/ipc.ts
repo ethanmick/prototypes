@@ -16,6 +16,7 @@ export interface AppInfo {
   version: string
   platform: string
   arch: string
+  cwd: string
 }
 
 export interface PokemonInfo {

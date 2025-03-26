@@ -46,6 +46,7 @@ const App = () => {
             <li>Version: {appInfo.version}</li>
             <li>Platform: {appInfo.platform}</li>
             <li>Architecture: {appInfo.arch}</li>
+            <li>Current Working Directory: {appInfo.cwd}</li>
           </ul>
         )}
       </section>

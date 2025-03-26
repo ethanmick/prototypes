@@ -20,6 +20,7 @@ const setupIpcHandlers = () => {
           version: app.getVersion(),
           platform: process.platform,
           arch: process.arch,
+          cwd: process.cwd(),
         }
         await sleep(1000)
         return { success: true, data: appInfo }
