@@ -151,6 +151,48 @@ const SortableGroup = ({
   )
 }
 
+// Group container with droppable after-area
+const GroupContainer = ({
+  group,
+  onRemoveGroup,
+  isOverGroup,
+}: {
+  group: Group
+  onRemoveGroup: (id: UniqueIdentifier) => void
+  isOverGroup: boolean
+}) => {
+  return (
+    <div className="relative">
+      {isOverGroup && <DroppableOverlay isOver={true} isGroup={true} />}
+      <SortableGroup group={group} onRemoveGroup={onRemoveGroup} />
+    </div>
+  )
+}
+
+// Droppable After Group Area
+const DroppableAfterGroup = ({
+  id,
+  isActive,
+}: {
+  id: UniqueIdentifier
+  isActive: boolean
+}) => {
+  const { setNodeRef } = useSortable({
+    id: `${id}-after`,
+    data: { type: 'AFTER_GROUP', groupId: id },
+  })
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`h-3 -mt-1 mb-2 rounded ${
+        isActive ? 'bg-green-200 border border-green-400' : 'hover:bg-gray-100'
+      }`}
+      style={{ transition: 'background-color 0.2s ease' }}
+    />
+  )
+}
+
 // Droppable Overlay Indicator
 const DroppableOverlay = ({
   isOver,
@@ -201,10 +243,18 @@ const DragNDropDemo = () => {
     null
   )
   const [overGroup, setOverGroup] = useState<UniqueIdentifier | null>(null)
+  const [overAfterArea, setOverAfterArea] = useState<UniqueIdentifier | null>(
+    null
+  )
 
   // IDs for sortable context - root items
   const rootIds = useMemo(() => {
-    return rootItems.map((item) => item.id)
+    const ids = rootItems.map((item) => item.id)
+    // Add "after-group" areas for each group
+    const afterGroupIds = rootItems
+      .filter((item) => item.type === 'GROUP')
+      .map((group) => `${group.id}-after`)
+    return [...ids, ...afterGroupIds]
   }, [rootItems])
 
   // Get all groups
@@ -263,6 +313,16 @@ const DragNDropDemo = () => {
     const activeItem = findItemById(active.id)
     if (!activeItem) return
 
+    // Reset states first
+    setOverGroup(null)
+    setOverAfterArea(null)
+
+    // Check if we're over an "after group" area
+    if (over.data.current?.type === 'AFTER_GROUP') {
+      setOverAfterArea(over.data.current.groupId as UniqueIdentifier)
+      return
+    }
+
     // Dropping an item over a group
     if (activeItem.type === 'ITEM' && over.data.current?.type === 'GROUP') {
       setOverGroup(over.id)
@@ -273,11 +333,6 @@ const DragNDropDemo = () => {
     if (activeItem.type === 'GROUP' && over.data.current?.type === 'GROUP') {
       setOverGroup(over.id)
       return
-    }
-
-    // Reset over group if not over a group
-    if (overGroup) {
-      setOverGroup(null)
     }
 
     // Handle dropping an item over another item in a group
@@ -297,6 +352,7 @@ const DragNDropDemo = () => {
       setActiveId(null)
       setActiveParentId(null)
       setOverGroup(null)
+      setOverAfterArea(null)
       return
     }
 
@@ -305,11 +361,83 @@ const DragNDropDemo = () => {
       setActiveId(null)
       setActiveParentId(null)
       setOverGroup(null)
+      setOverAfterArea(null)
       return
     }
 
-    // Handle Group sorting
-    if (activeItem.type === 'GROUP') {
+    // Handle dropping after a group
+    if (over.data.current?.type === 'AFTER_GROUP') {
+      const groupId = over.data.current.groupId as UniqueIdentifier
+
+      // Only handle item drops after groups
+      if (activeItem.type === 'ITEM') {
+        setRootItems((items) => {
+          // Find the group and its index
+          const groupIndex = items.findIndex((item) => item.id === groupId)
+          if (groupIndex === -1) return items
+
+          // Handle removing the item from its current location
+          let itemsWithoutDragged: RootItem[] = []
+          let draggedItem: Item | null = null
+
+          // If the item is from a group
+          const activeParent = findGroupContainingItem(active.id)
+          if (activeParent) {
+            // Get the dragged item
+            draggedItem = activeParent.items.find(
+              (item) => item.id === active.id
+            ) as Item
+
+            // Remove from original group
+            itemsWithoutDragged = items.map((item) => {
+              if (item.id === activeParent.id && item.type === 'GROUP') {
+                return {
+                  ...item,
+                  items: item.items.filter((i) => i.id !== active.id),
+                }
+              }
+              return item
+            })
+          } else {
+            // Item is at root level
+            draggedItem = items.find((item) => item.id === active.id) as Item
+
+            // Remove from root
+            itemsWithoutDragged = items.filter((item) => item.id !== active.id)
+          }
+
+          if (!draggedItem) return items
+
+          // Insert after the group
+          return [
+            ...itemsWithoutDragged.slice(0, groupIndex + 1),
+            draggedItem,
+            ...itemsWithoutDragged.slice(groupIndex + 1),
+          ]
+        })
+      }
+      // If dragging a group to after another group
+      else if (activeItem.type === 'GROUP') {
+        setRootItems((items) => {
+          const oldIndex = items.findIndex((item) => item.id === active.id)
+          const targetGroupIndex = items.findIndex(
+            (item) => item.id === groupId
+          )
+
+          if (oldIndex === -1 || targetGroupIndex === -1) return items
+
+          // We want to place it after the target group
+          const newIndex =
+            targetGroupIndex < oldIndex
+              ? targetGroupIndex + 1
+              : targetGroupIndex
+
+          return arrayMove(items, oldIndex, newIndex)
+        })
+      }
+    }
+    // Handle Group sorting - direct group-to-group
+    else if (activeItem.type === 'GROUP') {
       const overItem = findItemById(over.id)
 
       setRootItems((items) => {
@@ -332,6 +460,7 @@ const DragNDropDemo = () => {
           setActiveId(null)
           setActiveParentId(null)
           setOverGroup(null)
+          setOverAfterArea(null)
           return items
         }
 
@@ -466,7 +595,6 @@ const DragNDropDemo = () => {
         })
       }
     }
-
     // Handle dropping an item directly over a group
     else if (
       activeItem.type === 'ITEM' &&
@@ -477,6 +605,7 @@ const DragNDropDemo = () => {
         setActiveId(null)
         setActiveParentId(null)
         setOverGroup(null)
+        setOverAfterArea(null)
         return
       }
 
@@ -537,6 +666,7 @@ const DragNDropDemo = () => {
     setActiveId(null)
     setActiveParentId(null)
     setOverGroup(null)
+    setOverAfterArea(null)
   }
 
   // Adding new groups
@@ -583,7 +713,7 @@ const DragNDropDemo = () => {
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
-        <div className="space-y-2 min-h-[400px]">
+        <div className="space-y-1 min-h-[400px]">
           <SortableContext
             items={rootIds}
             strategy={verticalListSortingStrategy}
@@ -595,13 +725,15 @@ const DragNDropDemo = () => {
 
               if (item.type === 'GROUP') {
                 return (
-                  <div key={item.id.toString()} className="relative">
-                    {overGroup === item.id && (
-                      <DroppableOverlay isOver={true} isGroup={true} />
-                    )}
-                    <SortableGroup
+                  <div key={item.id.toString()}>
+                    <GroupContainer
                       group={item}
                       onRemoveGroup={handleRemoveGroup}
+                      isOverGroup={overGroup === item.id}
+                    />
+                    <DroppableAfterGroup
+                      id={item.id}
+                      isActive={overAfterArea === item.id}
                     />
                   </div>
                 )
