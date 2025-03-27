@@ -94,6 +94,14 @@ const SortableGroup = ({
     opacity: isDragging ? 0.5 : 1,
   }
 
+  const handleRemoveClick = (e: React.MouseEvent) => {
+    // Prevent the event from being captured by the drag handler
+    e.stopPropagation()
+    e.preventDefault()
+    // Immediately call onRemoveGroup with the group id
+    onRemoveGroup(group.id)
+  }
+
   return (
     <div
       ref={setNodeRef}
@@ -106,14 +114,18 @@ const SortableGroup = ({
         {...listeners}
       >
         <h3 className="font-medium">{group.name}</h3>
-        <button
-          onClick={() => onRemoveGroup(group.id)}
-          className="bg-red-100 text-red-600 px-2 py-1 rounded text-xs hover:bg-red-200"
-        >
-          Remove
-        </button>
+        {/* Move the button outside of the draggable area's attributes and listeners */}
       </div>
       <div className="pl-2">
+        <div className="flex justify-end mb-2">
+          <button
+            onClick={handleRemoveClick}
+            className="bg-red-100 text-red-600 px-2 py-1 rounded text-xs hover:bg-red-200"
+            type="button"
+          >
+            Remove
+          </button>
+        </div>
         {group.items.map((item) => (
           <SortableItem
             key={item.id.toString()}
