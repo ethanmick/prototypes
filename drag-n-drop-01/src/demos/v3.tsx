@@ -34,6 +34,12 @@ type GroupType = {
 
 type ListItem = { id: string; type: 'item' } | { id: string; type: 'group' }
 
+// New type for tracking drop indication
+type DropIndicator = {
+  id: string | null
+  type: 'before' | 'after' | 'inside' | null
+}
+
 // Helper functions
 const generateId = () =>
   `id-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
@@ -80,13 +86,39 @@ const Item: React.FC<{
   )
 }
 
+// Droppable spacer component
+const DroppableSpacer: React.FC<{
+  id: string
+  isHighlighted: boolean
+}> = ({ id, isHighlighted }) => {
+  const { setNodeRef } = useSortable({ id })
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`h-4 my-2 rounded transition-colors ${
+        isHighlighted ? 'bg-blue-200' : 'bg-transparent'
+      }`}
+      data-spacer="true"
+    />
+  )
+}
+
 const Group: React.FC<{
   id: string
   title: string
   items: ItemType[]
   onRemove: () => void
   isOverlay?: boolean
-}> = ({ id, title, items, onRemove, isOverlay = false }) => {
+  isDropTarget?: boolean
+}> = ({
+  id,
+  title,
+  items,
+  onRemove,
+  isOverlay = false,
+  isDropTarget = false,
+}) => {
   const {
     attributes,
     listeners,
@@ -118,10 +150,18 @@ const Group: React.FC<{
           </button>
         )}
       </div>
-      <div className="p-2 bg-gray-50 rounded-b-md">
+      <div
+        className={`p-2 rounded-b-md transition-colors ${
+          isDropTarget ? 'bg-blue-50' : 'bg-gray-50'
+        }`}
+      >
         {items.length === 0 ? (
-          <div className="text-sm text-gray-400 p-2 text-center">
-            Empty group
+          <div
+            className={`text-sm p-2 text-center transition-colors ${
+              isDropTarget ? 'text-blue-500' : 'text-gray-400'
+            }`}
+          >
+            {isDropTarget ? 'Drop here' : 'Empty group'}
           </div>
         ) : (
           items.map((item) => (
@@ -148,7 +188,9 @@ const Group: React.FC<{
     <div
       ref={setNodeRef}
       style={style}
-      className="border border-gray-200 rounded-md mb-3 cursor-move"
+      className={`border rounded-md mb-1 cursor-move transition-all ${
+        isDropTarget ? 'border-blue-300 shadow-md' : 'border-gray-200'
+      }`}
       {...attributes}
       {...listeners}
     >
@@ -188,8 +230,27 @@ export default function DragAndDropDemo() {
     { id: 'standalone-item-4', type: 'item' },
   ])
 
+  // Combined sortable items (main items + spacers)
+  const sortableIds = (() => {
+    const ids: string[] = []
+    // Add a spacer before each item and the actual item
+    mainList.forEach((item) => {
+      ids.push(`spacer-before-${item.id}`)
+      ids.push(item.id)
+    })
+    // Add a final spacer
+    ids.push(`spacer-after-last`)
+    return ids
+  })()
+
   const [activeId, setActiveId] = useState<string | null>(null)
   const [activeType, setActiveType] = useState<'item' | 'group' | null>(null)
+
+  // New state for tracking where the item will be dropped
+  const [dropIndicator, setDropIndicator] = useState<DropIndicator>({
+    id: null,
+    type: null,
+  })
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -225,10 +286,6 @@ export default function DragAndDropDemo() {
     return null
   }
 
-  const isItemInGroup = (itemId: string): boolean => {
-    return findGroupContainingItem(itemId) !== null
-  }
-
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event
     setActiveId(active.id as string)
@@ -236,15 +293,48 @@ export default function DragAndDropDemo() {
     // Determine if we're dragging an item or a group
     const isGroup = groups.some((group) => group.id === active.id)
     setActiveType(isGroup ? 'group' : 'item')
+
+    // Reset the drop indicator
+    setDropIndicator({ id: null, type: null })
   }
 
   const handleDragOver = (event: DragOverEvent) => {
     const { active, over } = event
 
-    if (!over || active.id === over.id) return
+    if (!over || active.id === over.id) {
+      setDropIndicator({ id: null, type: null })
+      return
+    }
 
-    // No longer needed since we're handling everything in handleDragEnd
-    // Just keeping the handler for potential future visual feedback
+    const activeId = active.id as string
+    const overId = over.id as string
+
+    // Is it a spacer?
+    if (overId.startsWith('spacer-')) {
+      // Extract the associated item or determine it's the last spacer
+      if (overId === 'spacer-after-last') {
+        setDropIndicator({ id: 'last', type: 'after' })
+      } else {
+        const targetItemId = overId.replace('spacer-before-', '')
+        setDropIndicator({ id: targetItemId, type: 'before' })
+      }
+      return
+    }
+
+    // Is it a group and we're dragging an item?
+    if (activeType === 'item') {
+      const isOverGroup = groups.some((group) => group.id === overId)
+      const activeGroupId = findGroupContainingItem(activeId)
+
+      if (isOverGroup && activeGroupId !== overId) {
+        // We're hovering over a group that the item is not already in
+        setDropIndicator({ id: overId, type: 'inside' })
+        return
+      }
+    }
+
+    // Default - between items
+    setDropIndicator({ id: overId, type: 'after' })
   }
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -253,6 +343,7 @@ export default function DragAndDropDemo() {
     if (!over) {
       setActiveId(null)
       setActiveType(null)
+      setDropIndicator({ id: null, type: null })
       return
     }
 
@@ -262,24 +353,81 @@ export default function DragAndDropDemo() {
     if (activeId === overId) {
       setActiveId(null)
       setActiveType(null)
+      setDropIndicator({ id: null, type: null })
       return
     }
 
-    // Handle reordering in the main list
-    const activeIndex = mainList.findIndex((item) => item.id === activeId)
-    const overIndex = mainList.findIndex((item) => item.id === overId)
+    // Handle spacers specially
+    if (overId.startsWith('spacer-')) {
+      let targetIndex: number
 
-    if (activeIndex !== -1 && overIndex !== -1) {
-      setMainList(arrayMove(mainList, activeIndex, overIndex))
+      // If it's the last spacer, add to the end
+      if (overId === 'spacer-after-last') {
+        targetIndex = mainList.length
+      } else {
+        // Otherwise find the index of the element the spacer precedes
+        const targetItemId = overId.replace('spacer-before-', '')
+        targetIndex = mainList.findIndex((item) => item.id === targetItemId)
+      }
+
+      // If active item is in a group, handle removing it
+      const activeGroupId = findGroupContainingItem(activeId)
+      if (activeType === 'item' && activeGroupId) {
+        const activeItem = findItemById(activeId)
+        if (!activeItem) return
+
+        // Create new standalone item
+        const newItemId = `standalone-item-${generateId()}`
+        const newItem = {
+          ...activeItem,
+          id: newItemId,
+        }
+
+        // Remove from source group
+        setGroups(
+          groups.map((group) => {
+            if (group.id === activeGroupId) {
+              return {
+                ...group,
+                items: group.items.filter((item) => item.id !== activeId),
+              }
+            }
+            return group
+          })
+        )
+
+        // Add to standalone items
+        setItems([...items, newItem])
+
+        // Add to main list at the target position
+        const newMainList = [...mainList]
+        newMainList.splice(targetIndex, 0, { id: newItemId, type: 'item' })
+        setMainList(newMainList)
+      } else {
+        // Handle normal reordering
+        const activeIndex = mainList.findIndex((item) => item.id === activeId)
+        if (activeIndex === -1) return
+
+        const newMainList = [...mainList]
+        const [movedItem] = newMainList.splice(activeIndex, 1)
+
+        // Adjust target index if needed when moving an item from before to after
+        const adjustedTargetIndex =
+          activeIndex < targetIndex ? targetIndex - 1 : targetIndex
+
+        newMainList.splice(adjustedTargetIndex, 0, movedItem)
+        setMainList(newMainList)
+      }
+
+      setActiveId(null)
+      setActiveType(null)
+      setDropIndicator({ id: null, type: null })
+      return
     }
 
-    // Handle item moving between groups or moving from standalone to group
-    if (activeType === 'item') {
+    // Handle dropping onto a group for insertion
+    if (activeType === 'item' && dropIndicator.type === 'inside') {
       const isOverGroup = groups.some((group) => group.id === overId)
-      const isOverItem = mainList.some(
-        (item) => item.type === 'item' && item.id === overId
-      )
-
       const activeGroupId = findGroupContainingItem(activeId)
 
       // If dropping an item onto a group
@@ -331,50 +479,68 @@ export default function DragAndDropDemo() {
           })
         )
       }
+    }
+    // Handle reordering in the main list for non-spacer targets
+    else {
+      const activeIndex = mainList.findIndex((item) => item.id === activeId)
+      const overIndex = mainList.findIndex((item) => item.id === overId)
 
-      // Handle item moving from a group to outside
-      else if (activeGroupId && isOverItem) {
-        const activeItem = findItemById(activeId)
-        if (!activeItem) return
+      if (activeIndex !== -1 && overIndex !== -1) {
+        setMainList(arrayMove(mainList, activeIndex, overIndex))
+      }
 
-        // Create a new unique ID for the standalone item
-        const newItemId = `standalone-item-${generateId()}`
-        const newItem = {
-          ...activeItem,
-          id: newItemId,
-        }
+      // Handle item moving from a group to outside (onto another item)
+      if (activeType === 'item') {
+        const activeGroupId = findGroupContainingItem(activeId)
+        const isOverItem = mainList.some(
+          (item) => item.type === 'item' && item.id === overId
+        )
 
-        // Remove from source group
-        setGroups(
-          groups.map((group) => {
-            if (group.id === activeGroupId) {
-              return {
-                ...group,
-                items: group.items.filter((item) => item.id !== activeId),
+        // If moving from a group to a standalone item
+        if (activeGroupId && isOverItem) {
+          const activeItem = findItemById(activeId)
+          if (!activeItem) return
+
+          // Create a new unique ID for the standalone item
+          const newItemId = `standalone-item-${generateId()}`
+          const newItem = {
+            ...activeItem,
+            id: newItemId,
+          }
+
+          // Remove from source group
+          setGroups(
+            groups.map((group) => {
+              if (group.id === activeGroupId) {
+                return {
+                  ...group,
+                  items: group.items.filter((item) => item.id !== activeId),
+                }
               }
-            }
-            return group
+              return group
+            })
+          )
+
+          // Add to standalone items
+          setItems([...items, newItem])
+
+          // Add to main list at the appropriate position
+          const newMainList = [...mainList]
+          const overMainIndex = newMainList.findIndex(
+            (item) => item.id === overId
+          )
+          newMainList.splice(overMainIndex + 1, 0, {
+            id: newItemId,
+            type: 'item',
           })
-        )
-
-        // Add to standalone items
-        setItems([...items, newItem])
-
-        // Add to main list at the appropriate position
-        const newMainList = [...mainList]
-        const overMainIndex = newMainList.findIndex(
-          (item) => item.id === overId
-        )
-        newMainList.splice(overMainIndex + 1, 0, {
-          id: newItemId,
-          type: 'item',
-        })
-        setMainList(newMainList)
+          setMainList(newMainList)
+        }
       }
     }
 
     setActiveId(null)
     setActiveType(null)
+    setDropIndicator({ id: null, type: null })
   }
 
   const handleAddGroup = () => {
@@ -453,6 +619,33 @@ export default function DragAndDropDemo() {
     return null
   }
 
+  // Function to determine if a spacer should be highlighted
+  const isSpacerHighlighted = (spacerId: string) => {
+    if (!dropIndicator.id || !dropIndicator.type) return false
+
+    if (
+      spacerId === 'spacer-after-last' &&
+      dropIndicator.id === 'last' &&
+      dropIndicator.type === 'after'
+    ) {
+      return true
+    }
+
+    if (
+      dropIndicator.type === 'before' &&
+      spacerId === `spacer-before-${dropIndicator.id}`
+    ) {
+      return true
+    }
+
+    return false
+  }
+
+  // Function to determine if a group should be highlighted as a drop target
+  const isGroupHighlighted = (groupId: string) => {
+    return dropIndicator.id === groupId && dropIndicator.type === 'inside'
+  }
+
   // Render the component
   return (
     <div className="max-w-2xl mx-auto p-4">
@@ -466,31 +659,55 @@ export default function DragAndDropDemo() {
         onDragEnd={handleDragEnd}
       >
         <SortableContext
-          items={mainList.map((item) => item.id)}
+          items={sortableIds}
           strategy={verticalListSortingStrategy}
         >
-          <div className="space-y-2">
-            {mainList.map((listItem) => {
-              if (listItem.type === 'item') {
-                const item = findItemById(listItem.id)
-                if (!item || isItemInGroup(item.id)) return null
-                return (
-                  <Item key={item.id} id={item.id} content={item.content} />
-                )
-              } else {
-                const group = findGroupById(listItem.id)
-                if (!group) return null
-                return (
-                  <Group
-                    key={group.id}
-                    id={group.id}
-                    title={group.title}
-                    items={group.items}
-                    onRemove={() => handleRemoveGroup(group.id)}
+          <div className="space-y-1">
+            {/* First spacer */}
+            <DroppableSpacer
+              id={`spacer-before-${mainList[0]?.id}`}
+              isHighlighted={isSpacerHighlighted(
+                `spacer-before-${mainList[0]?.id}`
+              )}
+            />
+
+            {/* Map through each item and add spacers between them */}
+            {mainList.map((listItem, index) => (
+              <React.Fragment key={listItem.id}>
+                {listItem.type === 'item' ? (
+                  <Item
+                    key={listItem.id}
+                    id={listItem.id}
+                    content={findItemById(listItem.id)?.content || ''}
                   />
-                )
-              }
-            })}
+                ) : (
+                  <Group
+                    key={listItem.id}
+                    id={listItem.id}
+                    title={findGroupById(listItem.id)?.title || ''}
+                    items={findGroupById(listItem.id)?.items || []}
+                    onRemove={() => handleRemoveGroup(listItem.id)}
+                    isDropTarget={isGroupHighlighted(listItem.id)}
+                  />
+                )}
+
+                {/* Add spacer after each item */}
+                {index < mainList.length - 1 && (
+                  <DroppableSpacer
+                    id={`spacer-before-${mainList[index + 1].id}`}
+                    isHighlighted={isSpacerHighlighted(
+                      `spacer-before-${mainList[index + 1].id}`
+                    )}
+                  />
+                )}
+              </React.Fragment>
+            ))}
+
+            {/* Last spacer */}
+            <DroppableSpacer
+              id="spacer-after-last"
+              isHighlighted={isSpacerHighlighted('spacer-after-last')}
+            />
           </div>
         </SortableContext>
 
