@@ -34,6 +34,9 @@ interface Group {
   items: Item[]
 }
 
+// Union type for items that can be in the root list
+type RootItem = Item | Group
+
 // Components
 const SortableItem = ({
   item,
@@ -140,38 +143,72 @@ const SortableGroup = ({
 
 // Main Component
 const DragNDropDemo = () => {
-  const [items, setItems] = useState<Item[]>([
+  // Our list of all root-level items (both standalone items and groups)
+  const [rootItems, setRootItems] = useState<RootItem[]>([
     { id: 'item-1', type: 'ITEM', content: 'Item 1' },
     { id: 'item-2', type: 'ITEM', content: 'Item 2' },
-    { id: 'item-3', type: 'ITEM', content: 'Item 3' },
-  ])
-
-  const [groups, setGroups] = useState<Group[]>([
     {
       id: 'group-1',
       type: 'GROUP',
       name: 'Group 1',
       items: [
+        { id: 'item-3', type: 'ITEM', content: 'Item 3' },
         { id: 'item-4', type: 'ITEM', content: 'Item 4' },
-        { id: 'item-5', type: 'ITEM', content: 'Item 5' },
       ],
     },
+    { id: 'item-5', type: 'ITEM', content: 'Item 5' },
     {
       id: 'group-2',
       type: 'GROUP',
       name: 'Group 2',
       items: [{ id: 'item-6', type: 'ITEM', content: 'Item 6' }],
     },
+    { id: 'item-7', type: 'ITEM', content: 'Item 7' },
   ])
 
   const [activeParentId, setActiveParentId] = useState<UniqueIdentifier | null>(
     null
   )
 
-  // All IDs for top-level sortable context
+  // IDs for sortable context - we only need the IDs of root items
   const rootIds = useMemo(() => {
-    return [...items.map((item) => item.id), ...groups.map((group) => group.id)]
-  }, [items, groups])
+    return rootItems.map((item) => item.id)
+  }, [rootItems])
+
+  // Get all standalone items (not in groups)
+  const standaloneItems = useMemo(() => {
+    return rootItems.filter((item) => item.type === 'ITEM') as Item[]
+  }, [rootItems])
+
+  // Get all groups
+  const groups = useMemo(() => {
+    return rootItems.filter((item) => item.type === 'GROUP') as Group[]
+  }, [rootItems])
+
+  // Helper functions to work with our new data structure
+  // Find an item or group by ID
+  const findItemById = (id: UniqueIdentifier): RootItem | undefined => {
+    // First check in root items
+    const rootItem = rootItems.find((item) => item.id === id)
+    if (rootItem) return rootItem
+
+    // Then check in groups
+    for (const group of groups) {
+      const groupItem = group.items.find((item) => item.id === id)
+      if (groupItem) return groupItem
+    }
+
+    return undefined
+  }
+
+  // Find the group that contains an item
+  const findGroupContainingItem = (
+    itemId: UniqueIdentifier
+  ): Group | undefined => {
+    return groups.find((group) =>
+      group.items.some((item) => item.id === itemId)
+    )
+  }
 
   // Sensors for drag and drop
   const sensors = useSensors(
@@ -197,60 +234,72 @@ const DragNDropDemo = () => {
 
     if (!over) return
 
-    const activeData = active.data.current
+    const activeId = active.id
     const overId = over.id
 
-    // Skip if not dragging an item or hovering over the same item
-    if (activeData?.type !== 'ITEM' || active.id === overId) return
+    if (activeId === overId) return
 
-    // Find the group we're dragging over (if any)
-    const overGroup = groups.find((group) => group.id === overId)
+    const activeData = active.data.current
+    const activeType = activeData?.type
 
-    // Only handle item drops into groups
-    if (overGroup) {
-      setItems((items) => items.filter((item) => item.id !== active.id))
+    // Only handle dropping items into groups
+    if (activeType !== 'ITEM') return
 
-      // If item was in another group, remove it from there
+    // Check if we're dragging over a group
+    const overItem = findItemById(overId)
+    if (!overItem || overItem.type !== 'GROUP') return
+
+    const overGroup = overItem as Group
+
+    // Move item to the group
+    setRootItems((rootItems) => {
+      // If item is already in a group, remove it from there
       if (activeParentId) {
-        setGroups((currentGroups) => {
-          return currentGroups.map((group) => {
-            if (group.id === activeParentId) {
-              return {
-                ...group,
-                items: group.items.filter((item) => item.id !== active.id),
-              }
+        // Create a new array with the item removed from its current group
+        return rootItems.map((item) => {
+          if (item.type === 'GROUP' && item.id === activeParentId) {
+            return {
+              ...item,
+              items: item.items.filter((i) => i.id !== activeId),
             }
-            return group
-          })
+          }
+          return item
         })
+      } else {
+        // Remove item from root items if it's there
+        return rootItems.filter(
+          (item) => !(item.type === 'ITEM' && item.id === activeId)
+        )
       }
+    })
 
-      // Add item to the new group
-      setGroups((currentGroups) => {
-        return currentGroups.map((group) => {
-          if (group.id === overGroup.id) {
+    // Add item to the target group
+    setRootItems((rootItems) => {
+      return rootItems.map((item) => {
+        if (item.type === 'GROUP' && item.id === overGroup.id) {
+          // Find the item that we're moving
+          const activeItem = activeParentId
+            ? groups
+                .find((g) => g.id === activeParentId)
+                ?.items.find((i) => i.id === activeId)
+            : standaloneItems.find((i) => i.id === activeId)
+
+          if (activeItem) {
             // Only add if it's not already there
-            if (!group.items.some((item) => item.id === active.id)) {
-              const activeItem = activeParentId
-                ? groups
-                    .find((g) => g.id === activeParentId)
-                    ?.items.find((i) => i.id === active.id)
-                : items.find((i) => i.id === active.id)
-
-              if (activeItem) {
-                return {
-                  ...group,
-                  items: [...group.items, activeItem as Item],
-                }
+            if (!item.items.some((i) => i.id === activeId)) {
+              return {
+                ...item,
+                items: [...item.items, activeItem],
               }
             }
           }
-          return group
-        })
+        }
+        return item
       })
+    })
 
-      setActiveParentId(overGroup.id)
-    }
+    // Update parent tracking
+    setActiveParentId(overGroup.id)
   }
 
   // Drag end handler
@@ -262,10 +311,10 @@ const DragNDropDemo = () => {
       return
     }
 
-    const activeItemId = active.id
+    const activeId = active.id
     const overId = over.id
 
-    if (activeItemId === overId) {
+    if (activeId === overId) {
       setActiveParentId(null)
       return
     }
@@ -276,93 +325,90 @@ const DragNDropDemo = () => {
 
     // Case 1: Sorting items within the same group
     if (activeType === 'ITEM' && activeParent) {
-      // Check if this is a within-group sort or moving to root
-      const isOverGroup = groups.some((g) => g.id === overId)
+      // Find the group containing the items
+      const parentGroup = findGroupContainingItem(activeId)
 
-      if (isOverGroup) {
-        // This is handled in the dragOver event for moving between groups
-        // Here we just handle sorting within the same group
-        const parentGroup = groups.find((group) => group.id === activeParent)
-        const overIsInSameGroup = parentGroup?.items.some(
+      if (parentGroup) {
+        // Check if the target is in the same group
+        const isOverInSameGroup = parentGroup.items.some(
           (item) => item.id === overId
         )
 
-        if (parentGroup && overIsInSameGroup) {
+        if (isOverInSameGroup) {
+          // Sort within the group
           const oldIndex = parentGroup.items.findIndex(
-            (item) => item.id === activeItemId
+            (item) => item.id === activeId
           )
           const newIndex = parentGroup.items.findIndex(
             (item) => item.id === overId
           )
 
           if (oldIndex !== -1 && newIndex !== -1) {
-            setGroups((groups) => {
-              return groups.map((group) => {
-                if (group.id === activeParent) {
-                  const newItems = arrayMove(group.items, oldIndex, newIndex)
-                  return { ...group, items: newItems }
+            setRootItems((rootItems) => {
+              return rootItems.map((item) => {
+                if (item.type === 'GROUP' && item.id === parentGroup.id) {
+                  const newItems = arrayMove(item.items, oldIndex, newIndex)
+                  return { ...item, items: newItems }
                 }
-                return group
+                return item
               })
             })
           }
-        }
-      } else {
-        // Case 2: Moving an item from a group to the root level
-        // Remove from group
-        setGroups((groups) => {
-          return groups.map((group) => {
-            if (group.id === activeParent) {
-              return {
-                ...group,
-                items: group.items.filter((item) => item.id !== activeItemId),
+        } else {
+          // Moving out of group to root level
+          const overIsGroup = groups.some((group) => group.id === overId)
+
+          if (!overIsGroup) {
+            // Remove from current group
+            setRootItems((rootItems) => {
+              const updatedRootItems = rootItems.map((item) => {
+                if (item.type === 'GROUP' && item.id === parentGroup.id) {
+                  return {
+                    ...item,
+                    items: item.items.filter((i) => i.id !== activeId),
+                  }
+                }
+                return item
+              })
+
+              // Find the item being moved
+              const activeItem = parentGroup.items.find(
+                (i) => i.id === activeId
+              )
+
+              if (activeItem) {
+                // Find position to insert at
+                const overIndex = updatedRootItems.findIndex(
+                  (item) => item.id === overId
+                )
+
+                if (overIndex !== -1) {
+                  // Insert at specific position
+                  return [
+                    ...updatedRootItems.slice(0, overIndex),
+                    activeItem,
+                    ...updatedRootItems.slice(overIndex),
+                  ]
+                } else {
+                  // Append to end if position not found
+                  return [...updatedRootItems, activeItem]
+                }
               }
-            }
-            return group
-          })
-        })
 
-        // Add to root items
-        const itemToMove = groups
-          .find((g) => g.id === activeParent)
-          ?.items.find((i) => i.id === activeItemId)
-
-        if (itemToMove) {
-          // Find the correct position in root items
-          const overItemIndex = items.findIndex((item) => item.id === overId)
-
-          if (overItemIndex !== -1) {
-            const newItems = [...items]
-            newItems.splice(overItemIndex, 0, itemToMove)
-            setItems(newItems)
-          } else {
-            setItems([...items, itemToMove])
+              return updatedRootItems
+            })
           }
         }
       }
     }
-    // Case 3: Sorting top-level items (either standalone items or groups)
+    // Case 2: Sorting at root level or between root and groups
     else {
-      const isItem = items.some((item) => item.id === activeItemId)
-      const isGroup = groups.some((group) => group.id === activeItemId)
+      // Moving root items (standalone items or groups)
+      const activeIndex = rootItems.findIndex((item) => item.id === activeId)
+      const overIndex = rootItems.findIndex((item) => item.id === overId)
 
-      if (isItem) {
-        const oldIndex = items.findIndex((item) => item.id === activeItemId)
-        const isOverGroup = groups.some((group) => group.id === overId)
-
-        if (!isOverGroup) {
-          const newIndex = items.findIndex((item) => item.id === overId)
-          if (oldIndex !== -1 && newIndex !== -1) {
-            setItems((items) => arrayMove(items, oldIndex, newIndex))
-          }
-        }
-      } else if (isGroup) {
-        const oldIndex = groups.findIndex((group) => group.id === activeItemId)
-        const newIndex = groups.findIndex((group) => group.id === overId)
-
-        if (oldIndex !== -1 && newIndex !== -1) {
-          setGroups((groups) => arrayMove(groups, oldIndex, newIndex))
-        }
+      if (activeIndex !== -1 && overIndex !== -1) {
+        setRootItems((items) => arrayMove(items, activeIndex, overIndex))
       }
     }
 
@@ -378,17 +424,42 @@ const DragNDropDemo = () => {
       name: `Group ${groups.length + 1}`,
       items: [],
     }
-    setGroups([...groups, newGroup])
+    setRootItems([...rootItems, newGroup])
   }
 
   // Remove a group and move its items to the root
   const handleRemoveGroup = (groupId: UniqueIdentifier) => {
-    const group = groups.find((g) => g.id === groupId)
-    if (group) {
-      // Move items to root
-      setItems([...items, ...group.items])
-      // Remove the group
-      setGroups(groups.filter((g) => g.id !== groupId))
+    setRootItems((currentItems) => {
+      // Find the group
+      const groupIndex = currentItems.findIndex(
+        (item) => item.type === 'GROUP' && item.id === groupId
+      )
+
+      if (groupIndex === -1) return currentItems
+
+      const group = currentItems[groupIndex] as Group
+
+      // Remove the group and add its items to the root level
+      return [
+        ...currentItems.slice(0, groupIndex),
+        ...group.items,
+        ...currentItems.slice(groupIndex + 1),
+      ]
+    })
+  }
+
+  // Render components based on type
+  const renderItem = (item: RootItem) => {
+    if (item.type === 'ITEM') {
+      return <SortableItem key={item.id.toString()} item={item} />
+    } else {
+      return (
+        <SortableGroup
+          key={item.id.toString()}
+          group={item}
+          onRemoveGroup={handleRemoveGroup}
+        />
+      )
     }
   }
 
@@ -404,19 +475,7 @@ const DragNDropDemo = () => {
         onDragEnd={handleDragEnd}
       >
         <SortableContext items={rootIds} strategy={verticalListSortingStrategy}>
-          {/* Render top-level items */}
-          {items.map((item) => (
-            <SortableItem key={item.id.toString()} item={item} />
-          ))}
-
-          {/* Render groups */}
-          {groups.map((group) => (
-            <SortableGroup
-              key={group.id.toString()}
-              group={group}
-              onRemoveGroup={handleRemoveGroup}
-            />
-          ))}
+          {rootItems.map(renderItem)}
         </SortableContext>
       </DndContext>
 
