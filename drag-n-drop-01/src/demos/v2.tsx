@@ -36,13 +36,44 @@ interface Group {
 
 type RootItem = Item | Group
 
+// Drop Preview Interface
+interface DropPreview {
+  targetId: UniqueIdentifier | null
+  targetType: 'ITEM' | 'GROUP' | 'AFTER_GROUP' | null
+  position: 'before' | 'after' | 'inside'
+  parentId: UniqueIdentifier | null
+}
+
+// Drop Preview Line Component
+const DropPreviewLine = ({
+  isActive,
+  isHorizontal = false,
+  isInGroup = false,
+}: {
+  isActive: boolean
+  isHorizontal?: boolean
+  isInGroup?: boolean
+}) => {
+  if (!isActive) return null
+
+  return (
+    <div
+      className={`absolute ${
+        isHorizontal ? 'h-0.5 left-0 right-0' : 'w-0.5 top-0 bottom-0'
+      } bg-blue-500 z-10 rounded-full ${isInGroup ? 'ml-4' : ''}`}
+    />
+  )
+}
+
 // Item Component
 const SortableItem = ({
   item,
   parentId = null,
+  preview = null,
 }: {
   item: Item
   parentId?: UniqueIdentifier | null
+  preview?: DropPreview | null
 }) => {
   const {
     attributes,
@@ -61,19 +92,52 @@ const SortableItem = ({
     transition,
     opacity: isDragging ? 0.5 : 1,
     zIndex: isDragging ? 1000 : 1,
+    position: 'relative' as const,
   }
 
+  const showTopPreview =
+    preview?.targetId === item.id &&
+    preview.position === 'before' &&
+    preview.targetType === 'ITEM' &&
+    preview.parentId === parentId
+
+  const showBottomPreview =
+    preview?.targetId === item.id &&
+    preview.position === 'after' &&
+    preview.targetType === 'ITEM' &&
+    preview.parentId === parentId
+
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`p-2 my-1 bg-white border rounded shadow cursor-grab ${
-        parentId ? 'ml-4' : ''
-      } ${isDragging ? 'ring-2 ring-green-400' : ''}`}
-      {...attributes}
-      {...listeners}
-    >
-      {item.content}
+    <div className="relative">
+      {showTopPreview && (
+        <div className="absolute top-0 left-0 right-0 -mt-1">
+          <DropPreviewLine
+            isActive={true}
+            isHorizontal={true}
+            isInGroup={!!parentId}
+          />
+        </div>
+      )}
+      <div
+        ref={setNodeRef}
+        style={style}
+        className={`p-2 my-1 bg-white border rounded shadow cursor-grab ${
+          parentId ? 'ml-4' : ''
+        } ${isDragging ? 'ring-2 ring-green-400' : ''}`}
+        {...attributes}
+        {...listeners}
+      >
+        {item.content}
+      </div>
+      {showBottomPreview && (
+        <div className="absolute bottom-0 left-0 right-0 -mb-1">
+          <DropPreviewLine
+            isActive={true}
+            isHorizontal={true}
+            isInGroup={!!parentId}
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -82,9 +146,11 @@ const SortableItem = ({
 const SortableGroup = ({
   group,
   onRemoveGroup,
+  preview = null,
 }: {
   group: Group
   onRemoveGroup: (id: UniqueIdentifier) => void
+  preview?: DropPreview | null
 }) => {
   const {
     attributes,
@@ -111,13 +177,18 @@ const SortableGroup = ({
     onRemoveGroup(group.id)
   }
 
+  const showInsidePreview =
+    preview?.targetId === group.id &&
+    preview.position === 'inside' &&
+    preview.targetType === 'GROUP'
+
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={`p-3 my-2 bg-gray-50 border rounded shadow ${
         isDragging ? 'ring-2 ring-blue-400' : ''
-      }`}
+      } ${showInsidePreview ? 'ring-2 ring-blue-500' : ''}`}
     >
       <div
         className="flex justify-between items-center mb-2 cursor-grab"
@@ -133,15 +204,21 @@ const SortableGroup = ({
           Remove
         </button>
       </div>
-      <div className="pl-2 pt-1 border-t">
+      <div className="pl-2 pt-1 border-t relative">
+        {showInsidePreview && group.items.length === 0 && (
+          <div className="p-2 mb-2 border border-blue-400 bg-blue-50 bg-opacity-30 rounded">
+            <div className="h-6 rounded bg-blue-100 bg-opacity-50 border border-dashed border-blue-400"></div>
+          </div>
+        )}
         {group.items.map((item) => (
           <SortableItem
             key={item.id.toString()}
             item={item}
             parentId={group.id}
+            preview={preview}
           />
         ))}
-        {group.items.length === 0 && (
+        {group.items.length === 0 && !showInsidePreview && (
           <div className="text-gray-400 text-sm italic p-2">
             Drag items here
           </div>
@@ -156,15 +233,31 @@ const GroupContainer = ({
   group,
   onRemoveGroup,
   isOverGroup,
+  preview = null,
 }: {
   group: Group
   onRemoveGroup: (id: UniqueIdentifier) => void
   isOverGroup: boolean
+  preview?: DropPreview | null
 }) => {
+  const showTopPreview =
+    preview?.targetId === group.id &&
+    preview.position === 'before' &&
+    preview.targetType === 'GROUP'
+
   return (
     <div className="relative">
       {isOverGroup && <DroppableOverlay isOver={true} isGroup={true} />}
-      <SortableGroup group={group} onRemoveGroup={onRemoveGroup} />
+      {showTopPreview && (
+        <div className="absolute top-0 left-0 right-0 -mt-1 z-10">
+          <DropPreviewLine isActive={true} isHorizontal={true} />
+        </div>
+      )}
+      <SortableGroup
+        group={group}
+        onRemoveGroup={onRemoveGroup}
+        preview={preview}
+      />
     </div>
   )
 }
@@ -214,6 +307,15 @@ const DroppableOverlay = ({
   )
 }
 
+// Additional DropIndicator component for the end of the list
+const LastItemDropIndicator = ({ isActive }: { isActive: boolean }) => {
+  if (!isActive) return null
+
+  return (
+    <div className="h-10 border-2 border-dashed border-blue-400 rounded bg-blue-50 bg-opacity-30 mb-2"></div>
+  )
+}
+
 // Main Component
 const DragNDropDemo = () => {
   // State
@@ -246,6 +348,12 @@ const DragNDropDemo = () => {
   const [overAfterArea, setOverAfterArea] = useState<UniqueIdentifier | null>(
     null
   )
+  const [dropPreview, setDropPreview] = useState<DropPreview>({
+    targetId: null,
+    targetType: null,
+    position: 'after',
+    parentId: null,
+  })
 
   // IDs for sortable context - root items
   const rootIds = useMemo(() => {
@@ -316,32 +424,90 @@ const DragNDropDemo = () => {
     // Reset states first
     setOverGroup(null)
     setOverAfterArea(null)
+    setDropPreview({
+      targetId: null,
+      targetType: null,
+      position: 'after',
+      parentId: null,
+    })
+
+    // Special handling for dropping at the end of the list
+    if (over.id === 'end-of-list') {
+      setDropPreview({
+        targetId: 'end-of-list',
+        targetType: 'ITEM',
+        position: 'after',
+        parentId: null,
+      })
+      return
+    }
 
     // Check if we're over an "after group" area
     if (over.data.current?.type === 'AFTER_GROUP') {
       setOverAfterArea(over.data.current.groupId as UniqueIdentifier)
+      setDropPreview({
+        targetId: over.data.current.groupId as UniqueIdentifier,
+        targetType: 'AFTER_GROUP',
+        position: 'after',
+        parentId: null,
+      })
       return
     }
 
     // Dropping an item over a group
     if (activeItem.type === 'ITEM' && over.data.current?.type === 'GROUP') {
       setOverGroup(over.id)
+      // Show as going inside the group
+      setDropPreview({
+        targetId: over.id,
+        targetType: 'GROUP',
+        position: 'inside',
+        parentId: null,
+      })
       return
     }
 
     // Group being dragged over another group
     if (activeItem.type === 'GROUP' && over.data.current?.type === 'GROUP') {
       setOverGroup(over.id)
+      // Show as going before or after the group based on cursor position
+      const overRect = over.rect
+      const overCenter = overRect ? overRect.top + overRect.height / 2 : 0
+      const overPos =
+        event.activatorEvent instanceof PointerEvent
+          ? event.activatorEvent.clientY
+          : 0
+
+      setDropPreview({
+        targetId: over.id,
+        targetType: 'GROUP',
+        position: overPos < overCenter ? 'before' : 'after',
+        parentId: null,
+      })
       return
     }
 
-    // Handle dropping an item over another item in a group
-    if (
-      activeItem.type === 'ITEM' &&
-      over.data.current?.type === 'ITEM' &&
-      over.data.current?.parentId
-    ) {
-      setOverGroup(over.data.current.parentId)
+    // Handle dropping an item over another item
+    if (activeItem.type === 'ITEM' && over.data.current?.type === 'ITEM') {
+      // Item over an item in a group
+      if (over.data.current?.parentId) {
+        setOverGroup(over.data.current.parentId)
+      }
+
+      // Determine whether it should appear before or after the target item
+      const overRect = over.rect
+      const overCenter = overRect ? overRect.top + overRect.height / 2 : 0
+      const overPos =
+        event.activatorEvent instanceof PointerEvent
+          ? event.activatorEvent.clientY
+          : 0
+
+      setDropPreview({
+        targetId: over.id,
+        targetType: 'ITEM',
+        position: overPos < overCenter ? 'before' : 'after',
+        parentId: over.data.current?.parentId || null,
+      })
     }
   }
 
@@ -353,6 +519,12 @@ const DragNDropDemo = () => {
       setActiveParentId(null)
       setOverGroup(null)
       setOverAfterArea(null)
+      setDropPreview({
+        targetId: null,
+        targetType: null,
+        position: 'after',
+        parentId: null,
+      })
       return
     }
 
@@ -362,6 +534,69 @@ const DragNDropDemo = () => {
       setActiveParentId(null)
       setOverGroup(null)
       setOverAfterArea(null)
+      setDropPreview({
+        targetId: null,
+        targetType: null,
+        position: 'after',
+        parentId: null,
+      })
+      return
+    }
+
+    // Handle dropping at the end of the list
+    if (over.id === 'end-of-list') {
+      if (activeItem.type === 'ITEM') {
+        setRootItems((items) => {
+          // Handle item from a group
+          const activeParent = findGroupContainingItem(active.id)
+          if (activeParent) {
+            const draggedItem = activeParent.items.find(
+              (item) => item.id === active.id
+            ) as Item
+
+            if (!draggedItem) return items
+
+            // Remove from group and add to end of list
+            return [
+              ...items.map((item) => {
+                if (item.id === activeParent.id && item.type === 'GROUP') {
+                  return {
+                    ...item,
+                    items: item.items.filter((i) => i.id !== active.id),
+                  }
+                }
+                return item
+              }),
+              draggedItem,
+            ]
+          }
+          // If item is already at root, move it to the end
+          else {
+            const oldIndex = items.findIndex((item) => item.id === active.id)
+            const newIndex = items.length - 1
+            return arrayMove(items, oldIndex, newIndex)
+          }
+        })
+      }
+      // If a group is being moved to the end
+      else if (activeItem.type === 'GROUP') {
+        setRootItems((items) => {
+          const oldIndex = items.findIndex((item) => item.id === active.id)
+          const newIndex = items.length - 1
+          return arrayMove(items, oldIndex, newIndex)
+        })
+      }
+
+      setActiveId(null)
+      setActiveParentId(null)
+      setOverGroup(null)
+      setOverAfterArea(null)
+      setDropPreview({
+        targetId: null,
+        targetType: null,
+        position: 'after',
+        parentId: null,
+      })
       return
     }
 
@@ -667,6 +902,12 @@ const DragNDropDemo = () => {
     setActiveParentId(null)
     setOverGroup(null)
     setOverAfterArea(null)
+    setDropPreview({
+      targetId: null,
+      targetType: null,
+      position: 'after',
+      parentId: null,
+    })
   }
 
   // Adding new groups
@@ -715,12 +956,18 @@ const DragNDropDemo = () => {
       >
         <div className="space-y-1 min-h-[400px]">
           <SortableContext
-            items={rootIds}
+            items={[...rootIds, 'end-of-list']}
             strategy={verticalListSortingStrategy}
           >
             {rootItems.map((item) => {
               if (item.type === 'ITEM') {
-                return <SortableItem key={item.id.toString()} item={item} />
+                return (
+                  <SortableItem
+                    key={item.id.toString()}
+                    item={item}
+                    preview={dropPreview}
+                  />
+                )
               }
 
               if (item.type === 'GROUP') {
@@ -730,6 +977,7 @@ const DragNDropDemo = () => {
                       group={item}
                       onRemoveGroup={handleRemoveGroup}
                       isOverGroup={overGroup === item.id}
+                      preview={dropPreview}
                     />
                     <DroppableAfterGroup
                       id={item.id}
@@ -741,6 +989,21 @@ const DragNDropDemo = () => {
 
               return null
             })}
+
+            {/* End of list drop indicator */}
+            <div
+              ref={
+                useSortable({
+                  id: 'end-of-list',
+                  data: { type: 'END_OF_LIST' },
+                }).setNodeRef
+              }
+              className="mt-2"
+            >
+              <LastItemDropIndicator
+                isActive={dropPreview.targetId === 'end-of-list'}
+              />
+            </div>
           </SortableContext>
         </div>
       </DndContext>
