@@ -18,7 +18,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 // Types
 type ItemType = {
@@ -36,6 +36,12 @@ type GroupType = {
 
 type ElementType = ItemType | GroupType
 
+// Drag target types
+type DropTarget = {
+  id: string
+  type: 'inside-group' | 'before-element' | 'after-element'
+}
+
 // Helper function to create a new item
 const createItem = (): ItemType => ({
   id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
@@ -51,15 +57,19 @@ const createGroup = (): GroupType => ({
   items: [],
 })
 
-// Individual Item Component
+// Individual Item Component with drop indicator
 const Item = ({
   id,
   content,
   isDraggable = true,
+  isActiveDropTarget = false,
+  activeDropType = null,
 }: {
   id: string
   content: string
   isDraggable?: boolean
+  isActiveDropTarget?: boolean
+  activeDropType?: 'before-element' | 'after-element' | null
 }) => {
   const {
     attributes,
@@ -80,14 +90,24 @@ const Item = ({
   }
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="border rounded-md p-2 bg-white shadow-sm mb-2"
-      {...attributes}
-      {...listeners}
-    >
-      {content}
+    <div className="relative">
+      {activeDropType === 'before-element' && (
+        <div className="absolute left-0 right-0 top-0 h-1 bg-blue-500 -translate-y-1 z-10" />
+      )}
+      <div
+        ref={setNodeRef}
+        style={style}
+        className={`border rounded-md p-2 bg-white shadow-sm mb-2 ${
+          isActiveDropTarget ? 'border-blue-300' : ''
+        }`}
+        {...attributes}
+        {...listeners}
+      >
+        {content}
+      </div>
+      {activeDropType === 'after-element' && (
+        <div className="absolute left-0 right-0 bottom-0 h-1 bg-blue-500 translate-y-1 z-10" />
+      )}
     </div>
   )
 }
@@ -99,12 +119,16 @@ const Group = ({
   items,
   onRemoveGroup,
   onRemoveItem,
+  isActiveDropTarget,
+  activeDropType,
 }: {
   id: string
   title: string
   items: ItemType[]
   onRemoveGroup: (id: string) => void
   onRemoveItem: (groupId: string, itemId: string) => void
+  isActiveDropTarget: boolean
+  activeDropType: 'inside-group' | 'before-element' | 'after-element' | null
 }) => {
   const {
     attributes,
@@ -127,44 +151,65 @@ const Group = ({
   const itemIds = items.map((item) => item.id)
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="border rounded-lg p-3 bg-gray-50 mb-4"
-    >
+    <div className="relative">
+      {activeDropType === 'before-element' && (
+        <div className="absolute left-0 right-0 top-0 h-1 bg-blue-500 -translate-y-1 z-10" />
+      )}
       <div
-        className="flex items-center justify-between mb-2 p-2 bg-gray-100 rounded-md cursor-move"
-        {...attributes}
-        {...listeners}
+        ref={setNodeRef}
+        style={style}
+        className={`border rounded-lg p-3 ${
+          isActiveDropTarget && activeDropType === 'inside-group'
+            ? 'bg-blue-50 border-blue-300'
+            : 'bg-gray-50'
+        } mb-4`}
       >
-        <h3 className="font-medium">{title}</h3>
-        <button
-          className="text-red-500 hover:text-red-700 text-sm px-2 py-1"
-          onClick={() => onRemoveGroup(id)}
+        <div
+          className="flex items-center justify-between mb-2 p-2 bg-gray-100 rounded-md cursor-move"
+          {...attributes}
+          {...listeners}
         >
-          ✕
-        </button>
-      </div>
-      <div className="pl-2">
-        <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-          {items.map((item) => (
-            <div key={item.id} className="relative group">
-              <Item id={item.id} content={item.content} />
-              <button
-                className="absolute right-2 top-2 text-red-400 opacity-0 group-hover:opacity-100 text-xs"
-                onClick={() => onRemoveItem(id, item.id)}
-              >
-                ✕
-              </button>
+          <h3 className="font-medium">{title}</h3>
+          <button
+            className="text-red-500 hover:text-red-700 text-sm px-2 py-1"
+            onClick={() => onRemoveGroup(id)}
+          >
+            ✕
+          </button>
+        </div>
+        <div className="pl-2">
+          <SortableContext
+            items={itemIds}
+            strategy={verticalListSortingStrategy}
+          >
+            {items.map((item) => (
+              <div key={item.id} className="relative group">
+                <Item id={item.id} content={item.content} />
+                <button
+                  className="absolute right-2 top-2 text-red-400 opacity-0 group-hover:opacity-100 text-xs"
+                  onClick={() => onRemoveItem(id, item.id)}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </SortableContext>
+          {items.length === 0 && (
+            <div
+              className={`text-gray-400 text-sm p-2 border border-dashed rounded-md ${
+                isActiveDropTarget && activeDropType === 'inside-group'
+                  ? 'bg-blue-50 border-blue-300'
+                  : ''
+              }`}
+            >
+              Drop items here
             </div>
-          ))}
-        </SortableContext>
-        {items.length === 0 && (
-          <div className="text-gray-400 text-sm p-2 border border-dashed rounded-md">
-            Drop items here
-          </div>
-        )}
+          )}
+        </div>
       </div>
+      {activeDropType === 'after-element' && (
+        <div className="absolute left-0 right-0 bottom-0 h-1 bg-blue-500 -translate-y-3 z-10" />
+      )}
     </div>
   )
 }
@@ -197,8 +242,18 @@ export default function DragAndDropDemo() {
     groupId: string
   } | null>(null)
 
+  // Add state for drop indicator
+  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
+
+  const lastClientOffset = useRef<{ x: number; y: number } | null>(null)
+
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, {
+      // Lower activation distance makes it easier to position precisely
+      activationConstraint: {
+        distance: 5,
+      },
+    }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     })
@@ -278,16 +333,107 @@ export default function DragAndDropDemo() {
     }
   }
 
+  // Determine dropping position (either inside, before, or after)
+  const determineDropPositionForGroup = (
+    event: DragOverEvent
+  ): 'inside-group' | 'before-element' | 'after-element' => {
+    const { over, active } = event
+
+    if (!over) return 'inside-group'
+
+    // Get the client rect of the over element
+    const overRect = over.rect
+    if (!overRect) return 'inside-group'
+
+    // Get client offset of the active element
+    const activeOffset =
+      active.rect.current?.translated || active.rect.current?.initial
+    if (!activeOffset) return 'inside-group'
+
+    lastClientOffset.current = {
+      x: activeOffset.left,
+      y: activeOffset.top,
+    }
+
+    // Define a small region at the top and bottom of the group for "before" and "after"
+    const topRegionSize = Math.min(overRect.height * 0.25, 20)
+    const bottomRegionSize = Math.min(overRect.height * 0.25, 20)
+
+    if (activeOffset.top < overRect.top + topRegionSize) {
+      return 'before-element'
+    } else if (activeOffset.top > overRect.bottom - bottomRegionSize) {
+      return 'after-element'
+    } else {
+      return 'inside-group'
+    }
+  }
+
   // Handle drag over
   const handleDragOver = (event: DragOverEvent) => {
     const { active, over } = event
-    if (!over) return
+    if (!over) {
+      setDropTarget(null)
+      return
+    }
 
     const activeId = active.id as string
     const overId = over.id as string
 
     // Skip if hovering over self
-    if (activeId === overId) return
+    if (activeId === overId) {
+      setDropTarget(null)
+      return
+    }
+
+    // Find whether we're hovering over a group
+    const overElementIndex = elements.findIndex((el) => el.id === overId)
+    if (overElementIndex === -1) {
+      // Check if it's an item within a group
+      for (const element of elements) {
+        if (element.type === 'group') {
+          const itemIndex = element.items.findIndex(
+            (item) => item.id === overId
+          )
+          if (itemIndex !== -1) {
+            // It's an item in a group, set that as our drop target
+            setDropTarget({
+              id: overId,
+              type: 'inside-group',
+            })
+            break
+          }
+        }
+      }
+      return
+    }
+
+    const overElement = elements[overElementIndex]
+
+    // If hovering over a group, determine if we want to drop inside, before, or after
+    if (overElement.type === 'group') {
+      const dropPosition = determineDropPositionForGroup(event)
+      setDropTarget({
+        id: overId,
+        type: dropPosition,
+      })
+    } else {
+      // If hovering over an item, just set it as target
+      // Determine if we should show before or after indicator
+      const overRect = over.rect
+      if (overRect && lastClientOffset.current) {
+        const isBeforeMiddleY =
+          lastClientOffset.current.y < overRect.top + overRect.height / 2
+        setDropTarget({
+          id: overId,
+          type: isBeforeMiddleY ? 'before-element' : 'after-element',
+        })
+      } else {
+        setDropTarget({
+          id: overId,
+          type: 'before-element',
+        })
+      }
+    }
 
     // If we're dragging an item from a group
     if (activeItemFromGroup) {
@@ -306,7 +452,11 @@ export default function DragAndDropDemo() {
         (el) => el.id === overId && el.type === 'group'
       )
 
-      if (overGroupIndex !== -1 && overId !== groupId) {
+      if (
+        overGroupIndex !== -1 &&
+        overId !== groupId &&
+        dropTarget?.type === 'inside-group'
+      ) {
         // Move item from one group to another
         const newElements = [...elements]
 
@@ -330,15 +480,7 @@ export default function DragAndDropDemo() {
         })
       }
     } else if (!activeItemFromGroup && activeElement?.type === 'item') {
-      // Handle dragging a standalone item over a group
-      const isOverGroup = elements.some(
-        (el) => el.id === overId && el.type === 'group'
-      )
-
-      if (isOverGroup) {
-        // We're handling this in drag end to avoid flickering
-        return
-      }
+      // Visual feedback only, actual dropping is handled in drag end
     }
   }
 
@@ -346,9 +488,10 @@ export default function DragAndDropDemo() {
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
 
-    if (!over) {
+    if (!over || !dropTarget) {
       setActiveElement(null)
       setActiveItemFromGroup(null)
+      setDropTarget(null)
       return
     }
 
@@ -377,6 +520,7 @@ export default function DragAndDropDemo() {
         if (sourceGroupIndex === -1) {
           setActiveElement(null)
           setActiveItemFromGroup(null)
+          setDropTarget(null)
           return
         }
 
@@ -404,6 +548,7 @@ export default function DragAndDropDemo() {
 
         setActiveElement(null)
         setActiveItemFromGroup(null)
+        setDropTarget(null)
         return
       }
 
@@ -412,6 +557,7 @@ export default function DragAndDropDemo() {
       if (sourceGroupIndex === -1) {
         setActiveElement(null)
         setActiveItemFromGroup(null)
+        setDropTarget(null)
         return
       }
 
@@ -420,6 +566,7 @@ export default function DragAndDropDemo() {
       if (!draggedItem) {
         setActiveElement(null)
         setActiveItemFromGroup(null)
+        setDropTarget(null)
         return
       }
 
@@ -428,6 +575,7 @@ export default function DragAndDropDemo() {
       if (overIndex === -1) {
         setActiveElement(null)
         setActiveItemFromGroup(null)
+        setDropTarget(null)
         return
       }
 
@@ -439,19 +587,28 @@ export default function DragAndDropDemo() {
         items: sourceGroup.items.filter((item) => item.id !== itemId),
       }
 
-      // Insert into main list - we need to determine if we're inserting before or after
-      // the over element based on whether it's a group and the position
-      if (elements[overIndex].type === 'group') {
-        // If dropping onto a group, place it after the group
-        newElements.splice(overIndex + 1, 0, draggedItem)
-      } else {
-        // If dropping onto an item, place it at that position
+      const overElement = elements[overIndex]
+
+      // Determine where to insert based on drop target type
+      if (overElement.type === 'group' && dropTarget.type === 'inside-group') {
+        // Add item to the group instead of placing it outside
+        const targetGroup = newElements[overIndex] as GroupType
+        newElements[overIndex] = {
+          ...targetGroup,
+          items: [...targetGroup.items, draggedItem],
+        }
+      } else if (dropTarget.type === 'before-element') {
+        // Insert before the element
         newElements.splice(overIndex, 0, draggedItem)
+      } else {
+        // Insert after the element
+        newElements.splice(overIndex + 1, 0, draggedItem)
       }
 
       setElements(newElements)
       setActiveElement(null)
       setActiveItemFromGroup(null)
+      setDropTarget(null)
       return
     }
 
@@ -465,42 +622,66 @@ export default function DragAndDropDemo() {
         const itemIndex = elements.findIndex((el) => el.id === activeId)
         if (itemIndex === -1) {
           setActiveElement(null)
+          setDropTarget(null)
           return
         }
 
-        // Create a completely new array to avoid reference issues
-        const newElements = JSON.parse(
-          JSON.stringify(elements)
-        ) as ElementType[]
-        const item = newElements[itemIndex] as ItemType
+        // Only add to group if dropping inside, not before or after
+        if (dropTarget.type === 'inside-group') {
+          // Create a completely new array to avoid reference issues
+          const newElements = JSON.parse(
+            JSON.stringify(elements)
+          ) as ElementType[]
+          const item = newElements[itemIndex] as ItemType
 
-        // Remove item from main list
-        newElements.splice(itemIndex, 1)
+          // Remove item from main list
+          newElements.splice(itemIndex, 1)
 
-        // Get the group after the removal
-        const targetGroup = newElements.find(
-          (el): el is GroupType => el.id === overId && el.type === 'group'
-        )
-
-        if (targetGroup) {
-          // Find the new index of the group after removing the item
-          const newTargetGroupIndex = newElements.findIndex(
-            (el) => el.id === overId
+          // Get the group after the removal
+          const targetGroup = newElements.find(
+            (el): el is GroupType => el.id === overId && el.type === 'group'
           )
 
-          // Update the group with the new item
-          newElements[newTargetGroupIndex] = {
-            ...targetGroup,
-            items: [...targetGroup.items, item],
+          if (targetGroup) {
+            // Find the new index of the group after removing the item
+            const newTargetGroupIndex = newElements.findIndex(
+              (el) => el.id === overId
+            )
+
+            // Update the group with the new item
+            newElements[newTargetGroupIndex] = {
+              ...targetGroup,
+              items: [...targetGroup.items, item],
+            }
+
+            setElements(newElements)
+          } else {
+            // If somehow the target group doesn't exist, restore the original state
+            setElements([...elements])
+          }
+        } else {
+          // Handle before/after group placement
+          const newElements = [...elements]
+          const item = elements[itemIndex]
+
+          // Remove the item
+          newElements.splice(itemIndex, 1)
+
+          // Put it before or after the group
+          const targetIndex = newElements.findIndex((el) => el.id === overId)
+          if (targetIndex !== -1) {
+            if (dropTarget.type === 'before-element') {
+              newElements.splice(targetIndex, 0, item)
+            } else {
+              newElements.splice(targetIndex + 1, 0, item)
+            }
           }
 
           setElements(newElements)
-        } else {
-          // If somehow the target group doesn't exist, restore the original state
-          setElements([...elements])
         }
 
         setActiveElement(null)
+        setDropTarget(null)
         return
       }
     }
@@ -517,6 +698,7 @@ export default function DragAndDropDemo() {
 
     setActiveElement(null)
     setActiveItemFromGroup(null)
+    setDropTarget(null)
   }
 
   return (
@@ -536,12 +718,22 @@ export default function DragAndDropDemo() {
         >
           <div className="space-y-2">
             {elements.map((element) => {
+              const isActiveDropTarget = dropTarget?.id === element.id
+
               if (element.type === 'item') {
                 return (
                   <Item
                     key={element.id}
                     id={element.id}
                     content={element.content}
+                    isActiveDropTarget={isActiveDropTarget}
+                    activeDropType={
+                      isActiveDropTarget
+                        ? (dropTarget?.type as
+                            | 'before-element'
+                            | 'after-element')
+                        : null
+                    }
                   />
                 )
               } else if (element.type === 'group') {
@@ -553,6 +745,15 @@ export default function DragAndDropDemo() {
                     items={element.items}
                     onRemoveGroup={removeGroup}
                     onRemoveItem={removeItemFromGroup}
+                    isActiveDropTarget={isActiveDropTarget}
+                    activeDropType={
+                      isActiveDropTarget
+                        ? (dropTarget?.type as
+                            | 'inside-group'
+                            | 'before-element'
+                            | 'after-element')
+                        : null
+                    }
                   />
                 )
               }
