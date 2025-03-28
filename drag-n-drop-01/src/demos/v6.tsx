@@ -324,6 +324,16 @@ export default function DragAndDropDemo() {
           groupId: overId,
         })
       }
+    } else if (!activeItemFromGroup && activeElement?.type === 'item') {
+      // Handle dragging a standalone item over a group
+      const isOverGroup = elements.some(
+        (el) => el.id === overId && el.type === 'group'
+      )
+
+      if (isOverGroup) {
+        // We're handling this in drag end to avoid flickering
+        return
+      }
     }
   }
 
@@ -376,8 +386,15 @@ export default function DragAndDropDemo() {
         items: sourceGroup.items.filter((item) => item.id !== itemId),
       }
 
-      // Insert into main list
-      newElements.splice(overIndex, 0, draggedItem)
+      // Insert into main list - we need to determine if we're inserting before or after
+      // the over element based on whether it's a group and the position
+      if (elements[overIndex].type === 'group') {
+        // If dropping onto a group, place it after the group
+        newElements.splice(overIndex + 1, 0, draggedItem)
+      } else {
+        // If dropping onto an item, place it at that position
+        newElements.splice(overIndex, 0, draggedItem)
+      }
 
       setElements(newElements)
       setActiveElement(null)
@@ -398,20 +415,38 @@ export default function DragAndDropDemo() {
           return
         }
 
-        const item = elements[itemIndex] as ItemType
-        const newElements = [...elements]
+        // Create a completely new array to avoid reference issues
+        const newElements = JSON.parse(
+          JSON.stringify(elements)
+        ) as ElementType[]
+        const item = newElements[itemIndex] as ItemType
 
         // Remove item from main list
         newElements.splice(itemIndex, 1)
 
-        // Add to group
-        const targetGroup = newElements[targetGroupIndex] as GroupType
-        newElements[targetGroupIndex] = {
-          ...targetGroup,
-          items: [...targetGroup.items, item],
+        // Get the group after the removal
+        const targetGroup = newElements.find(
+          (el): el is GroupType => el.id === overId && el.type === 'group'
+        )
+
+        if (targetGroup) {
+          // Find the new index of the group after removing the item
+          const newTargetGroupIndex = newElements.findIndex(
+            (el) => el.id === overId
+          )
+
+          // Update the group with the new item
+          newElements[newTargetGroupIndex] = {
+            ...targetGroup,
+            items: [...targetGroup.items, item],
+          }
+
+          setElements(newElements)
+        } else {
+          // If somehow the target group doesn't exist, restore the original state
+          setElements([...elements])
         }
 
-        setElements(newElements)
         setActiveElement(null)
         return
       }
