@@ -111,6 +111,7 @@ const Group: React.FC<{
   onRemove: () => void
   isOverlay?: boolean
   isDropTarget?: boolean
+  activeItem?: ItemType | null
 }> = ({
   id,
   title,
@@ -118,6 +119,7 @@ const Group: React.FC<{
   onRemove,
   isOverlay = false,
   isDropTarget = false,
+  activeItem = null,
 }) => {
   const {
     attributes,
@@ -161,16 +163,32 @@ const Group: React.FC<{
               isDropTarget ? 'text-blue-500' : 'text-gray-400'
             }`}
           >
-            {isDropTarget ? 'Drop here' : 'Empty group'}
+            {isDropTarget ? (
+              <div className="flex items-center justify-center py-2">
+                <div className="w-6 h-6 border-2 border-blue-400 border-dashed rounded-full flex items-center justify-center mr-2">
+                  <span className="text-blue-500 text-xl">+</span>
+                </div>
+                <span>Drop item here</span>
+              </div>
+            ) : (
+              'Empty group'
+            )}
           </div>
         ) : (
-          items.map((item) => (
-            <Item
-              key={`${id}-${item.id}`}
-              id={item.id}
-              content={item.content}
-            />
-          ))
+          <>
+            {items.map((item) => (
+              <Item
+                key={`${id}-${item.id}`}
+                id={item.id}
+                content={item.content}
+              />
+            ))}
+            {isDropTarget && activeItem && (
+              <div className="border-2 border-blue-400 border-dashed p-3 mt-2 rounded-md bg-blue-50 opacity-70">
+                {activeItem.content}
+              </div>
+            )}
+          </>
         )}
       </div>
     </>
@@ -189,7 +207,7 @@ const Group: React.FC<{
       ref={setNodeRef}
       style={style}
       className={`border rounded-md mb-1 cursor-move transition-all ${
-        isDropTarget ? 'border-blue-300 shadow-md' : 'border-gray-200'
+        isDropTarget ? 'border-blue-400 border-2 shadow-md' : 'border-gray-200'
       }`}
       {...attributes}
       {...listeners}
@@ -596,6 +614,12 @@ export default function DragAndDropDemo() {
   const getActiveItem = () => {
     if (!activeId || !activeType) return null
 
+    // Don't show the overlay when we're dragging an item into a group
+    // This makes it clearer that the item will go inside the group
+    if (activeType === 'item' && dropIndicator.type === 'inside') {
+      return null
+    }
+
     if (activeType === 'item') {
       const item = findItemById(activeId)
       if (item) {
@@ -688,6 +712,11 @@ export default function DragAndDropDemo() {
                     items={findGroupById(listItem.id)?.items || []}
                     onRemove={() => handleRemoveGroup(listItem.id)}
                     isDropTarget={isGroupHighlighted(listItem.id)}
+                    activeItem={
+                      isGroupHighlighted(listItem.id) && activeType === 'item'
+                        ? findItemById(activeId as string)
+                        : null
+                    }
                   />
                 )}
 
