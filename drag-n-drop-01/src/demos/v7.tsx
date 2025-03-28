@@ -17,20 +17,47 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import React, { useState } from 'react'
 
-// Define item type
-interface Item {
+// Define types
+interface BaseElement {
   id: string
+  type: 'item' | 'group'
+}
+
+interface Item extends BaseElement {
+  type: 'item'
   content: string
 }
 
-// SortableItem component
-const SortableItem: React.FC<{ item: Item }> = ({ item }) => {
+interface Group extends BaseElement {
+  type: 'group'
+  title: string
+}
+
+type DragElement = Item | Group
+
+// SortableElement component
+const SortableElement: React.FC<{ element: DragElement }> = ({ element }) => {
   const { attributes, listeners, setNodeRef, transform, transition } =
-    useSortable({ id: item.id })
+    useSortable({ id: element.id })
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
+  }
+
+  if (element.type === 'group') {
+    return (
+      <div
+        ref={setNodeRef}
+        style={style}
+        {...attributes}
+        {...listeners}
+        className="p-4 mb-2 bg-blue-50 border border-blue-200 rounded shadow-sm cursor-grab h-24"
+      >
+        <h3 className="font-semibold text-blue-700">{element.title}</h3>
+        <p className="text-sm text-blue-500">Group</p>
+      </div>
+    )
   }
 
   return (
@@ -39,22 +66,23 @@ const SortableItem: React.FC<{ item: Item }> = ({ item }) => {
       style={style}
       {...attributes}
       {...listeners}
-      className="p-4 mb-2 bg-white border border-gray-200 rounded shadow-sm cursor-grab"
+      className="p-4 mb-2 bg-white border border-gray-200 rounded shadow-sm cursor-grab h-12"
     >
-      {item.content}
+      {element.content}
     </div>
   )
 }
 
 // Main component
 const DragAndDropDemo = () => {
-  // Initial items
-  const [items, setItems] = useState<Item[]>([
-    { id: '1', content: 'Item 1' },
-    { id: '2', content: 'Item 2' },
-    { id: '3', content: 'Item 3' },
-    { id: '4', content: 'Item 4' },
-    { id: '5', content: 'Item 5' },
+  // Initial elements (items and groups)
+  const [elements, setElements] = useState<DragElement[]>([
+    { id: '1', type: 'item', content: 'Item 1' },
+    { id: '2', type: 'group', title: 'Group A' },
+    { id: '3', type: 'item', content: 'Item 2' },
+    { id: '4', type: 'item', content: 'Item 3' },
+    { id: '5', type: 'group', title: 'Group B' },
+    { id: '6', type: 'item', content: 'Item 4' },
   ])
 
   // Configure sensors for mouse/touch and keyboard
@@ -70,30 +98,30 @@ const DragAndDropDemo = () => {
     const { active, over } = event
 
     if (over && active.id !== over.id) {
-      setItems((items) => {
-        const oldIndex = items.findIndex((item) => item.id === active.id)
-        const newIndex = items.findIndex((item) => item.id === over.id)
+      setElements((elements) => {
+        const oldIndex = elements.findIndex((el) => el.id === active.id)
+        const newIndex = elements.findIndex((el) => el.id === over.id)
 
-        return arrayMove(items, oldIndex, newIndex)
+        return arrayMove(elements, oldIndex, newIndex)
       })
     }
   }
 
   return (
     <div className="p-4 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Sortable Items</h1>
+      <h1 className="text-2xl font-bold mb-4">Sortable Items and Groups</h1>
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragEnd={handleDragEnd}
       >
         <SortableContext
-          items={items.map((item) => item.id)}
+          items={elements.map((el) => el.id)}
           strategy={verticalListSortingStrategy}
         >
           <div className="space-y-2">
-            {items.map((item) => (
-              <SortableItem key={item.id} item={item} />
+            {elements.map((element) => (
+              <SortableElement key={element.id} element={element} />
             ))}
           </div>
         </SortableContext>
