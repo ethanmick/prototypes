@@ -123,6 +123,9 @@ const Group = ({
     opacity: isDragging ? 0.3 : 1,
   }
 
+  // Get all sortable IDs for items in this group
+  const itemIds = items.map((item) => item.id)
+
   return (
     <div
       ref={setNodeRef}
@@ -143,17 +146,19 @@ const Group = ({
         </button>
       </div>
       <div className="pl-2">
-        {items.map((item) => (
-          <div key={item.id} className="relative group">
-            <Item id={item.id} content={item.content} />
-            <button
-              className="absolute right-2 top-2 text-red-400 opacity-0 group-hover:opacity-100 text-xs"
-              onClick={() => onRemoveItem(id, item.id)}
-            >
-              ✕
-            </button>
-          </div>
-        ))}
+        <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
+          {items.map((item) => (
+            <div key={item.id} className="relative group">
+              <Item id={item.id} content={item.content} />
+              <button
+                className="absolute right-2 top-2 text-red-400 opacity-0 group-hover:opacity-100 text-xs"
+                onClick={() => onRemoveItem(id, item.id)}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </SortableContext>
         {items.length === 0 && (
           <div className="text-gray-400 text-sm p-2 border border-dashed rounded-md">
             Drop items here
@@ -350,11 +355,59 @@ export default function DragAndDropDemo() {
     const activeId = active.id as string
     const overId = over.id as string
 
-    // If we're dragging an item from a group to a non-group target
-    if (activeItemFromGroup && elements.some((el) => el.id === overId)) {
+    // If we're dragging an item from a group
+    if (activeItemFromGroup) {
       const { groupId, itemId } = activeItemFromGroup
 
-      // Find the source group
+      // Check if we're dropping on the same group or an item in the same group
+      const overIsInSameGroup = elements.some((el) => {
+        if (el.id === groupId && el.type === 'group') {
+          // Check if overId is the group itself
+          if (el.id === overId) return true
+
+          // Check if overId is an item in the group
+          return el.items.some((item) => item.id === overId)
+        }
+        return false
+      })
+
+      if (overIsInSameGroup) {
+        // Find the source group
+        const sourceGroupIndex = elements.findIndex((el) => el.id === groupId)
+        if (sourceGroupIndex === -1) {
+          setActiveElement(null)
+          setActiveItemFromGroup(null)
+          return
+        }
+
+        const sourceGroup = elements[sourceGroupIndex] as GroupType
+
+        // If dropping on an item in the same group, reorder within group
+        if (overId !== groupId) {
+          const oldIndex = sourceGroup.items.findIndex(
+            (item) => item.id === itemId
+          )
+          const newIndex = sourceGroup.items.findIndex(
+            (item) => item.id === overId
+          )
+
+          if (oldIndex !== -1 && newIndex !== -1) {
+            const newElements = [...elements]
+            newElements[sourceGroupIndex] = {
+              ...sourceGroup,
+              items: arrayMove(sourceGroup.items, oldIndex, newIndex),
+            }
+
+            setElements(newElements)
+          }
+        }
+
+        setActiveElement(null)
+        setActiveItemFromGroup(null)
+        return
+      }
+
+      // Continue with existing logic for dropping on other targets
       const sourceGroupIndex = elements.findIndex((el) => el.id === groupId)
       if (sourceGroupIndex === -1) {
         setActiveElement(null)
