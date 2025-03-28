@@ -2,6 +2,8 @@ import {
   closestCenter,
   DndContext,
   DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
   KeyboardSensor,
   PointerSensor,
   useSensor,
@@ -37,12 +39,20 @@ type DragElement = Item | Group
 
 // SortableElement component
 const SortableElement: React.FC<{ element: DragElement }> = ({ element }) => {
-  const { attributes, listeners, setNodeRef, transform, transition } =
-    useSortable({ id: element.id })
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: element.id })
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 0 : 1,
   }
 
   if (element.type === 'group') {
@@ -73,6 +83,24 @@ const SortableElement: React.FC<{ element: DragElement }> = ({ element }) => {
   )
 }
 
+// Item renderer for the overlay
+const ItemRenderer: React.FC<{ element: DragElement }> = ({ element }) => {
+  if (element.type === 'group') {
+    return (
+      <div className="p-4 mb-2 bg-blue-50 border-2 border-blue-300 rounded shadow-sm cursor-grabbing min-h-[4rem] flex flex-col justify-center">
+        <h3 className="font-semibold text-blue-700">{element.title}</h3>
+        <p className="text-sm text-blue-500">Group</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-4 mb-2 bg-white border border-gray-200 rounded shadow-sm cursor-grabbing flex items-center">
+      {element.content}
+    </div>
+  )
+}
+
 // Main component
 const DragAndDropDemo = () => {
   // Initial elements (items and groups)
@@ -89,6 +117,8 @@ const DragAndDropDemo = () => {
     { id: '6', type: 'item', content: 'Item 4' },
   ])
 
+  const [activeElement, setActiveElement] = useState<DragElement | null>(null)
+
   // Configure sensors for mouse/touch and keyboard
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -97,9 +127,20 @@ const DragAndDropDemo = () => {
     })
   )
 
+  // Handle drag start event
+  const handleDragStart = (event: DragStartEvent) => {
+    const { active } = event
+    const activeItem = elements.find((el) => el.id === active.id)
+    if (activeItem) {
+      setActiveElement(activeItem)
+    }
+  }
+
   // Handle drag end event
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
+
+    setActiveElement(null)
 
     if (over && active.id !== over.id) {
       setElements((elements) => {
@@ -117,6 +158,7 @@ const DragAndDropDemo = () => {
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
         <SortableContext
@@ -129,6 +171,10 @@ const DragAndDropDemo = () => {
             ))}
           </div>
         </SortableContext>
+
+        <DragOverlay>
+          {activeElement ? <ItemRenderer element={activeElement} /> : null}
+        </DragOverlay>
       </DndContext>
     </div>
   )
