@@ -1,4 +1,4 @@
-import DragNDropDemo from './demos/v3'
+import DragNDropDemo from './demos/v6'
 
 function App() {
   return <DragNDropDemo />
