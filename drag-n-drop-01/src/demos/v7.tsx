@@ -52,7 +52,7 @@ const SortableElement: React.FC<{ element: DragElement }> = ({ element }) => {
         style={style}
         {...attributes}
         {...listeners}
-        className="p-4 mb-2 bg-blue-50 border border-blue-200 rounded shadow-sm cursor-grab h-24"
+        className="p-4 mb-2 bg-blue-50 border-2 border-blue-300 rounded shadow-sm cursor-grab min-h-[4rem] flex flex-col justify-center"
       >
         <h3 className="font-semibold text-blue-700">{element.title}</h3>
         <p className="text-sm text-blue-500">Group</p>
@@ -66,7 +66,7 @@ const SortableElement: React.FC<{ element: DragElement }> = ({ element }) => {
       style={style}
       {...attributes}
       {...listeners}
-      className="p-4 mb-2 bg-white border border-gray-200 rounded shadow-sm cursor-grab h-12"
+      className="p-4 mb-2 bg-white border border-gray-200 rounded shadow-sm cursor-grab flex items-center"
     >
       {element.content}
     </div>
@@ -80,7 +80,11 @@ const DragAndDropDemo = () => {
     { id: '1', type: 'item', content: 'Item 1' },
     { id: '2', type: 'group', title: 'Group A' },
     { id: '3', type: 'item', content: 'Item 2' },
-    { id: '4', type: 'item', content: 'Item 3' },
+    {
+      id: '4',
+      type: 'item',
+      content: 'Item 3 with longer content to demonstrate flexible height',
+    },
     { id: '5', type: 'group', title: 'Group B' },
     { id: '6', type: 'item', content: 'Item 4' },
   ])
