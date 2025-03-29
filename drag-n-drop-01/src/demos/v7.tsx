@@ -2,6 +2,7 @@ import {
   closestCenter,
   DndContext,
   DragEndEvent,
+  DragOverEvent,
   DragOverlay,
   DragStartEvent,
   KeyboardSensor,
@@ -38,7 +39,10 @@ interface Group extends BaseElement {
 type DragElement = Item | Group
 
 // SortableElement component
-const SortableElement: React.FC<{ element: DragElement }> = ({ element }) => {
+const SortableElement: React.FC<{
+  element: DragElement
+  isOverGroup?: boolean
+}> = ({ element, isOverGroup }) => {
   const {
     attributes,
     listeners,
@@ -62,7 +66,11 @@ const SortableElement: React.FC<{ element: DragElement }> = ({ element }) => {
         style={style}
         {...attributes}
         {...listeners}
-        className="p-4 mb-2 bg-blue-50 border-2 border-blue-300 rounded shadow-sm cursor-grab min-h-[4rem] flex flex-col justify-center"
+        className={`p-4 mb-2 border-2 rounded shadow-sm cursor-grab min-h-[4rem] flex flex-col justify-center ${
+          isOverGroup
+            ? 'bg-blue-100 border-blue-500 ring-2 ring-blue-500'
+            : 'bg-blue-50 border-blue-300'
+        }`}
       >
         <h3 className="font-semibold text-blue-700">{element.title}</h3>
         <p className="text-sm text-blue-500">Group</p>
@@ -118,6 +126,7 @@ const DragAndDropDemo = () => {
   ])
 
   const [activeElement, setActiveElement] = useState<DragElement | null>(null)
+  const [overGroupId, setOverGroupId] = useState<string | null>(null)
 
   // Configure sensors for mouse/touch and keyboard
   const sensors = useSensors(
@@ -136,11 +145,32 @@ const DragAndDropDemo = () => {
     }
   }
 
+  // Handle drag over event
+  const handleDragOver = (event: DragOverEvent) => {
+    const { active, over } = event
+
+    // Only track when an item is over a group
+    const activeElement = elements.find((el) => el.id === active.id)
+
+    if (over && activeElement?.type === 'item') {
+      const overElement = elements.find((el) => el.id === over.id)
+
+      if (overElement?.type === 'group') {
+        setOverGroupId(over.id as string)
+      } else {
+        setOverGroupId(null)
+      }
+    } else {
+      setOverGroupId(null)
+    }
+  }
+
   // Handle drag end event
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
 
     setActiveElement(null)
+    setOverGroupId(null)
 
     if (over && active.id !== over.id) {
       setElements((elements) => {
@@ -159,6 +189,7 @@ const DragAndDropDemo = () => {
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
         <SortableContext
@@ -167,7 +198,13 @@ const DragAndDropDemo = () => {
         >
           <div className="space-y-2">
             {elements.map((element) => (
-              <SortableElement key={element.id} element={element} />
+              <SortableElement
+                key={element.id}
+                element={element}
+                isOverGroup={
+                  element.type === 'group' && element.id === overGroupId
+                }
+              />
             ))}
           </div>
         </SortableContext>
