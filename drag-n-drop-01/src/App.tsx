@@ -1,4 +1,4 @@
-import DragNDropDemo from './demos/v8-gemini-2-5-pro'
+import DragNDropDemo from './demos/v9-gemini-2-5-pro'
 
 function App() {
   return <DragNDropDemo />
