@@ -383,13 +383,11 @@ const DragNDropDemo = () => {
 
           if (targetGroup && draggedItem) {
             // Check if item is already in a group
-            let sourceGroupId: string | null = null
             const newGroups = groups.map((group) => {
               const itemIndex = group.items.findIndex(
                 (item) => item.id === activeId
               )
               if (itemIndex >= 0) {
-                sourceGroupId = group.id
                 return {
                   ...group,
                   items: group.items.filter((item) => item.id !== activeId),
@@ -398,67 +396,65 @@ const DragNDropDemo = () => {
               return group
             })
 
-            // Now add the item to the target group
-            const updatedGroups = newGroups.map((group) => {
-              if (group.id === groupId) {
-                return {
-                  ...group,
-                  items:
-                    position === 'top'
-                      ? [draggedItem, ...group.items]
-                      : [...group.items, draggedItem],
-                }
-              }
-              return group
-            })
+            // Make sure to remove the item from the root list first
+            // whether it's there or being moved from a group
+            const newRootItems = rootItems.filter((id) => id !== activeId)
 
-            setGroups(updatedGroups)
+            // Get the group's position in the root list
+            const groupIndex = newRootItems.indexOf(targetGroup.id)
 
-            // If the item was in the root list, remove it
-            if (!sourceGroupId && rootItems.includes(activeId)) {
-              setRootItems(rootItems.filter((id) => id !== activeId))
+            if (position === 'top') {
+              // Insert the item above the group in the root list
+              newRootItems.splice(groupIndex, 0, activeId)
+            } else {
+              // Insert the item below the group in the root list
+              newRootItems.splice(groupIndex + 1, 0, activeId)
             }
+
+            setRootItems(newRootItems)
+            setGroups(newGroups)
           }
         }
       }
       // 1b: Over a group - add to group
       else if (overType === 'group') {
-        const targetGroup = groups.find((g) => g.id === overId)
-        const draggedItem = items.find((i) => i.id === activeId)
+        // Only proceed if we are not over a highlighted dropzone
+        if (!overDropZone) {
+          const targetGroup = groups.find((g) => g.id === overId)
+          const draggedItem = items.find((i) => i.id === activeId)
 
-        if (targetGroup && draggedItem) {
-          // Check if the item is already in a group
-          let sourceGroupId: string | null = null
-          const newGroups = groups.map((group) => {
-            const itemIndex = group.items.findIndex(
-              (item) => item.id === activeId
-            )
-            if (itemIndex >= 0) {
-              sourceGroupId = group.id
-              return {
-                ...group,
-                items: group.items.filter((item) => item.id !== activeId),
+          if (targetGroup && draggedItem) {
+            // Check if the item is already in a group
+            const newGroups = groups.map((group) => {
+              const itemIndex = group.items.findIndex(
+                (item) => item.id === activeId
+              )
+              if (itemIndex >= 0) {
+                return {
+                  ...group,
+                  items: group.items.filter((item) => item.id !== activeId),
+                }
               }
-            }
-            return group
-          })
+              return group
+            })
 
-          // Add the item to the target group
-          const updatedGroups = newGroups.map((group) => {
-            if (group.id === overId) {
-              return {
-                ...group,
-                items: [...group.items, draggedItem],
+            // Add the item to the target group
+            const updatedGroups = newGroups.map((group) => {
+              if (group.id === overId) {
+                return {
+                  ...group,
+                  items: [...group.items, draggedItem],
+                }
               }
-            }
-            return group
-          })
+              return group
+            })
 
-          setGroups(updatedGroups)
+            // Make sure to remove the item from the root list
+            // to prevent duplicate keys
+            const newRootItems = rootItems.filter((id) => id !== activeId)
 
-          // If the item was in the root list, remove it
-          if (!sourceGroupId && rootItems.includes(activeId)) {
-            setRootItems(rootItems.filter((id) => id !== activeId))
+            setRootItems(newRootItems)
+            setGroups(updatedGroups)
           }
         }
       }
@@ -490,13 +486,15 @@ const DragNDropDemo = () => {
             }
           })
 
-          setGroups(updatedGroups)
+          // Make sure the item is not already in the root list
+          const newRootItems = rootItems.filter((id) => id !== activeId)
 
           // Add to root items near the over item
-          const overIndex = rootItems.indexOf(overId)
-          const newRootItems = [...rootItems]
+          const overIndex = newRootItems.indexOf(overId)
           newRootItems.splice(overIndex, 0, activeId)
+
           setRootItems(newRootItems)
+          setGroups(updatedGroups)
         }
         // If both items are in the same group, reorder within the group
         else {
