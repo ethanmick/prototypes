@@ -90,10 +90,10 @@ const SortableItem: React.FC<{ item: Item }> = ({ item }) => {
       className={`p-3 mb-2 bg-white border rounded-md shadow-sm cursor-grab ${
         activeId === item.id ? 'border-blue-400' : 'border-gray-200'
       }`}
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 1, y: 0 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: 0.2 }}
+      transition={{ duration: 0.15 }}
     >
       {item.content}
     </motion.div>
@@ -116,9 +116,10 @@ const DropZoneItem: React.FC<{ dropZone: DropZone }> = ({ dropZone }) => {
       className={`h-2 my-1 rounded-md transition-colors ${
         isActive ? 'bg-blue-400' : 'bg-transparent'
       }`}
-      initial={{ opacity: 0 }}
+      initial={{ opacity: isActive ? 1 : 0.3 }}
       animate={{ opacity: isActive ? 1 : 0.3 }}
       exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
     />
   )
 }
@@ -164,13 +165,13 @@ const SortableGroup: React.FC<{ group: Group; dropZones: DropZone[] }> = ({
         className={`p-3 mb-2 bg-blue-50 border-2 rounded-md shadow-sm ${
           activeId === group.id ? 'border-blue-500' : 'border-blue-200'
         }`}
-        initial={{ opacity: 0, y: 10 }}
+        initial={{ opacity: 1, y: 0 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
-        transition={{ duration: 0.2 }}
+        transition={{ duration: 0.15 }}
       >
         <div className="mb-2 font-medium text-blue-700">{group.title}</div>
-        <AnimatePresence>
+        <AnimatePresence mode="popLayout">
           {group.items.map((item) => (
             <SortableItem key={item.id} item={item} />
           ))}
@@ -561,7 +562,7 @@ const DragNDropDemo = () => {
             strategy={verticalListSortingStrategy}
           >
             <div className="space-y-1">
-              <AnimatePresence>
+              <AnimatePresence mode="popLayout">
                 {rootItems.map((id) => {
                   const itemType = getItemType(id)
 
