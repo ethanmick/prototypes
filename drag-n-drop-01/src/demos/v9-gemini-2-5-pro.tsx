@@ -124,6 +124,8 @@ const findItem = (id: Id, state: AppState): Item | undefined => state.items[id]
 const findGroup = (id: Id, state: AppState): Group | undefined =>
   state.groups[id]
 
+// --- Components ---
+
 // 1. Individual Item Component
 interface SortableItemProps {
   item: Item
@@ -159,7 +161,7 @@ const SortableItem = React.memo(
         {...listeners}
         className={`p-2 border border-gray-300 bg-white rounded mb-1 ${
           isOverlay ? 'shadow-lg' : ''
-        }`}
+        } ${isDragging ? 'z-10 relative' : ''}`}
       >
         {item.content}
       </div>
@@ -204,11 +206,11 @@ const SortableGroup = React.memo(
         style={groupStyle}
         className={`p-3 border-2 border-blue-500 bg-blue-50 rounded mb-1 ${
           isOverlay ? 'shadow-xl' : ''
-        }`}
+        } ${isGroupDragging ? 'z-10 relative' : ''}`}
       >
         {/* Group Header (Draggable Handle for the Group itself) */}
         <div
-          {...attributes}
+          {...attributes} // Group drag handle here
           {...listeners}
           className="font-bold mb-2 cursor-grab active:cursor-grabbing"
         >
@@ -234,7 +236,6 @@ const SortableGroup = React.memo(
 SortableGroup.displayName = 'SortableGroup'
 
 // 3. Dedicated Drop Zones Above/Below Groups
-// These use useDroppable, not useSortable
 interface DroppableZoneProps {
   id: Id // e.g., 'above-group-a' or 'below-group-a'
   groupId: Id
@@ -269,7 +270,6 @@ const DroppableZone = ({
       } ${isOver && showZone ? 'ring-2 ring-green-500 ring-offset-1' : ''}`}
       aria-label={`Drop zone ${type} group ${groupId}`}
     >
-      {/* Optional: Text visible only when active */}
       {isOver && showZone && (
         <div className="text-xs text-green-800 text-center leading-8">
           {`Drop here (${type} group)`}
@@ -329,7 +329,7 @@ const App: React.FC = () => {
     })
   )
 
-  // Memoize derived data
+  // Memoize derived data based on activeId and appState
   const activeItem = useMemo(
     () => (activeId ? findItem(activeId, appState) : null),
     [activeId, appState.items]
@@ -344,193 +344,270 @@ const App: React.FC = () => {
   )
 
   const rootItemsAndGroups = useMemo(() => {
-    return appState.rootOrder.map(
-      (id) => appState.items[id] || appState.groups[id]
-    )
+    return appState.rootOrder
+      .map((id) => appState.items[id] || appState.groups[id])
+      .filter(Boolean) // Ensure no undefined entries
   }, [appState.rootOrder, appState.items, appState.groups])
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
-    console.log('Drag Start:', event.active.id, event.active.data.current?.type)
+    // console.log("Drag Start:", event.active.id, event.active.data.current?.type);
     setActiveId(event.active.id as Id)
   }, [])
 
   const handleDragOver = useCallback(() => {
-    // Optional: Add visual cues during drag over, e.g., highlighting potential drop zones
     // console.log("Drag Over:", event.over?.id);
   }, [])
 
-  const handleDragEnd = useCallback((event: DragEndEvent) => {
-    const { active, over } = event
-    setActiveId(null) // Clear active drag item
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
+      setActiveId(null)
 
-    if (!over || !active) {
-      console.log('Drag cancelled (no target)')
-      return
-    }
-
-    if (active.id === over.id) {
-      console.log('Drag ended on same item')
-      return
-    }
-
-    const activeId = active.id as Id
-    const overId = over.id as Id
-    const activeType = active.data.current?.type as DraggableType | undefined
-    const overType = over.data.current?.type as
-      | DraggableType
-      | `dropzone-${'above' | 'below'}`
-      | undefined
-    const overData = over.data.current
-
-    console.log(
-      `Drag End: Active=${activeId}(${activeType}) Over=${overId}(${overType})`
-    )
-    // console.log("Over Data:", overData);
-
-    setAppState((prevState) => {
-      const nextState = JSON.parse(JSON.stringify(prevState)) as AppState // Deep clone for immutability
-
-      const activeItem = findItem(activeId, nextState)
-      const activeGroup = findGroup(activeId, nextState)
-
-      const sourceContainerId =
-        activeItem?.groupId ??
-        (nextState.rootOrder.includes(activeId) ? 'root' : null)
-
-      // --- Core Logic ---
-
-      // 1. Moving a Group (Root Level Only)
-      if (activeType === 'group' && activeGroup) {
-        const activeIndex = nextState.rootOrder.indexOf(activeId)
-        let overIndex = nextState.rootOrder.indexOf(overId)
-
-        // If dropping over an item within a group, target the group itself in the root list
-        const overItem = findItem(overId, nextState)
-        if (overItem && overItem.groupId) {
-          overIndex = nextState.rootOrder.indexOf(overItem.groupId)
-        } else if (overType?.startsWith('dropzone-') && overData?.groupId) {
-          // If dropping on a dropzone, target the associated group's position
-          overIndex = nextState.rootOrder.indexOf(overData.groupId)
-          if (overType === 'dropzone-below') overIndex++
-        }
-
-        if (
-          activeIndex !== -1 &&
-          overIndex !== -1 &&
-          activeIndex !== overIndex
-        ) {
-          console.log(
-            `Moving Group ${activeId} from index ${activeIndex} to ${overIndex} in root`
-          )
-          nextState.rootOrder = arrayMove(
-            nextState.rootOrder,
-            activeIndex,
-            overIndex
-          )
-        }
-        return nextState // Group moves handled, return
+      if (!over || !active || active.id === over.id) {
+        // console.log("Drag ended without move or cancelled");
+        return
       }
 
-      // 2. Moving an Item
-      if (activeType === 'item' && activeItem) {
-        const targetIsGroup = overType === 'group'
-        const targetIsItemInGroup =
-          overType === 'item' && overData?.item?.groupId
-        const targetGroupId = targetIsGroup
-          ? overId
-          : targetIsItemInGroup
-          ? overData?.item?.groupId
-          : null
+      const activeId = active.id as Id
+      const overId = over.id as Id
+      const activeType = active.data.current?.type as DraggableType | undefined
+      const overType = over.data.current?.type as
+        | DraggableType
+        | `dropzone-${'above' | 'below'}`
+        | undefined
+      const overData = over.data.current
+
+      // console.log(`Drag End: Active=${activeId}(${activeType}) Over=${overId}(${overType})`);
+      // console.log("Over Data:", overData);
+
+      setAppState((prevState) => {
+        const nextState = JSON.parse(JSON.stringify(prevState)) as AppState
+
+        const activeItem = findItem(activeId, nextState)
+        const activeGroup = findGroup(activeId, nextState)
+        const overItem = findItem(overId, nextState)
+        const overGroup = findGroup(overId, nextState)
+
+        // Determine source container
+        const sourceContainerId =
+          activeItem?.groupId ??
+          (nextState.rootOrder.includes(activeId) ? 'root' : null)
+
+        // Determine target container/location info
+        let targetContainerId: Id | 'root' | null = null
+        let targetIndex = -1 // Index within the target container's direct children list (rootOrder or itemIds)
         const targetIsDropZone = overType?.startsWith('dropzone-')
-        const dropZoneTargetGroupId = targetIsDropZone
+        const dropZoneType: 'above' | 'below' | null = targetIsDropZone
+          ? (overType?.split('-')[1] as 'above' | 'below')
+          : null
+        const dropZoneGroupId: Id | null = targetIsDropZone
           ? overData?.groupId
           : null
 
-        // A. Remove item from its original location
-        const sourceIsRoot = sourceContainerId === 'root'
-        const sourceGroupId = !sourceIsRoot ? sourceContainerId : null
-
-        if (sourceIsRoot) {
-          const index = nextState.rootOrder.indexOf(activeId)
-          if (index > -1) nextState.rootOrder.splice(index, 1)
-        } else if (sourceGroupId && nextState.groups[sourceGroupId]) {
-          const group = nextState.groups[sourceGroupId]
-          const index = group.itemIds.indexOf(activeId)
-          if (index > -1) group.itemIds.splice(index, 1)
-        }
-        // Ensure item's groupId is cleared initially if removed
-        nextState.items[activeId].groupId = null
-
-        // B. Add item to its new location
-
-        // B.1 Dropping onto a Group (or an item within a group)
-        if (targetGroupId) {
-          console.log(`Moving Item ${activeId} into Group ${targetGroupId}`)
-          const targetGroup = nextState.groups[targetGroupId]
-          if (targetGroup) {
-            const overItemId = overType === 'item' ? overId : null
-            const targetItemIndex = overItemId
-              ? targetGroup.itemIds.indexOf(overItemId)
-              : -1
-
-            if (targetItemIndex > -1) {
-              // Insert before the item we dropped onto
-              targetGroup.itemIds.splice(targetItemIndex, 0, activeId)
-            } else {
-              // Add to the end of the group
-              targetGroup.itemIds.push(activeId)
-            }
-            nextState.items[activeId].groupId = targetGroupId // Update item's parent group
+        // Determine target container based on what is being hovered over
+        if (overGroup) {
+          // Dropped onto a group header/area
+          targetContainerId = overId
+          // If an item is dragged, it targets the group's item list
+          // If a group is dragged, it targets the root list position relative to this group
+        } else if (overItem) {
+          // Dropped onto an item
+          targetContainerId = overItem.groupId ?? 'root' // The container is where the overItem resides
+          if (targetContainerId === 'root') {
+            targetIndex = nextState.rootOrder.indexOf(overId)
+          } else if (nextState.groups[targetContainerId]) {
+            targetIndex =
+              nextState.groups[targetContainerId].itemIds.indexOf(overId)
           }
-        }
-        // B.2 Dropping onto a Dedicated Drop Zone (Above/Below Group)
-        else if (targetIsDropZone && dropZoneTargetGroupId) {
-          console.log(
-            `Moving Item ${activeId} ${overType} Group ${dropZoneTargetGroupId}`
-          )
-          const targetGroupIndexInRoot = nextState.rootOrder.indexOf(
-            dropZoneTargetGroupId
-          )
-          if (targetGroupIndexInRoot !== -1) {
-            const insertIndex =
-              overType === 'dropzone-above'
-                ? targetGroupIndexInRoot
-                : targetGroupIndexInRoot + 1
-            nextState.rootOrder.splice(insertIndex, 0, activeId)
-            nextState.items[activeId].groupId = null // Now at root level
+        } else if (targetIsDropZone && dropZoneGroupId) {
+          // Dropped onto a drop zone
+          targetContainerId = 'root' // Drop zones always resolve to root placement
+          const relatedGroupIndex = nextState.rootOrder.indexOf(dropZoneGroupId)
+          if (relatedGroupIndex !== -1) {
+            targetIndex =
+              dropZoneType === 'above'
+                ? relatedGroupIndex
+                : relatedGroupIndex + 1
           } else {
-            console.warn('Target group for dropzone not found in root!')
-            // Fallback: add to root end? Or revert? For now, add to end.
-            nextState.rootOrder.push(activeId)
-            nextState.items[activeId].groupId = null
-          }
-        }
-        // B.3 Dropping onto the Root list (or an item at the root level)
-        else {
-          console.log(`Moving Item ${activeId} to Root`)
-          const targetIndexInRoot = nextState.rootOrder.indexOf(overId)
-
-          if (targetIndexInRoot !== -1) {
-            // If dropped over a root item/group, insert before it
-            nextState.rootOrder.splice(targetIndexInRoot, 0, activeId)
-          } else {
-            // Attempt to find the correct drop position if overId wasn't directly in rootOrder
-            // This might happen if dropping in an empty space or near the end
-            // A more robust solution might involve collision detection strategies,
-            // but for simplicity, let's try finding the closest root element visually.
-            // Or just append if index not found.
+            targetIndex = nextState.rootOrder.length // Fallback: append if group not found?
             console.warn(
-              `Could not find exact target index for ${overId} in root. Appending.`
+              `Dropzone's related group ${dropZoneGroupId} not found in rootOrder`
             )
-            nextState.rootOrder.push(activeId) // Fallback: Add to end
           }
-          nextState.items[activeId].groupId = null // Ensure item is marked as root
+        } else if (nextState.rootOrder.includes(overId)) {
+          // Dropped onto another root item/group ID (should be covered by overItem/overGroup)
+          targetContainerId = 'root'
+          targetIndex = nextState.rootOrder.indexOf(overId)
+        } else {
+          // Fallback: Attempt to resolve based on overId type if possible, otherwise assume root append
+          if (findGroup(overId, nextState)) {
+            // Maybe dropped on group container background?
+            targetContainerId = overId // Target the group
+          } else {
+            console.warn(`Unclear drop target ${overId}. Assuming root append.`)
+            targetContainerId = 'root'
+            targetIndex = nextState.rootOrder.length // Append to end
+          }
         }
-      }
 
-      return nextState
-    })
-  }, [])
+        // --- Core Logic ---
+
+        // 1. Moving a Group (must stay in root)
+        if (activeType === 'group' && activeGroup) {
+          const activeIndex = nextState.rootOrder.indexOf(activeId)
+          let groupTargetIndex = -1 // Target index within rootOrder
+
+          if (targetContainerId === 'root') {
+            // Target is root level (via item, another group, dropzone, or root itself)
+            groupTargetIndex = targetIndex // Use the calculated root index
+          } else if (targetContainerId && nextState.groups[targetContainerId]) {
+            // Dropped onto an item *within* a group, target the group's root position
+            groupTargetIndex = nextState.rootOrder.indexOf(targetContainerId)
+          }
+
+          // Sanity check target index
+          if (
+            groupTargetIndex < 0 ||
+            groupTargetIndex > nextState.rootOrder.length
+          ) {
+            console.warn(
+              'Calculated invalid target index for group move:',
+              groupTargetIndex
+            )
+            groupTargetIndex = nextState.rootOrder.length // Fallback append
+          }
+
+          if (activeIndex !== -1 && activeIndex !== groupTargetIndex) {
+            // console.log(`Moving Group ${activeId} from root index ${activeIndex} to ${groupTargetIndex}`);
+            nextState.rootOrder = arrayMove(
+              nextState.rootOrder,
+              activeIndex,
+              groupTargetIndex
+            )
+          } else {
+            // console.log("Group move cancelled or target invalid.");
+          }
+          return nextState
+        }
+
+        // 2. Moving an Item
+        if (
+          activeType === 'item' &&
+          activeItem &&
+          sourceContainerId !== null &&
+          targetContainerId !== null
+        ) {
+          // Adjust target container if dropping item onto group header - should be group ID
+          if (overGroup && overId === targetContainerId) {
+            targetContainerId = overId // Ensure target is the group ID
+            targetIndex =
+              nextState.groups[targetContainerId]?.itemIds.length ?? 0 // Target end of group
+          }
+
+          // A. Sorting within the SAME container
+          if (sourceContainerId === targetContainerId && !targetIsDropZone) {
+            if (targetContainerId === 'root') {
+              const activeIndex = nextState.rootOrder.indexOf(activeId)
+              const overIndex = nextState.rootOrder.indexOf(overId) // Target the item/group being hovered over
+              if (activeIndex !== -1 && overIndex !== -1) {
+                // console.log(`Sorting Item ${activeId} in Root from ${activeIndex} to ${overIndex}`);
+                nextState.rootOrder = arrayMove(
+                  nextState.rootOrder,
+                  activeIndex,
+                  overIndex
+                )
+              } else {
+                console.warn('Root sort failed: indices not found', {
+                  activeId,
+                  overId,
+                  activeIndex,
+                  overIndex,
+                })
+              }
+            } else {
+              // Sorting within a group
+              const group = nextState.groups[targetContainerId]
+              if (group) {
+                const activeIndex = group.itemIds.indexOf(activeId)
+                let overIndex = group.itemIds.indexOf(overId)
+                // If dropped onto group container (not an item), append to end
+                if (overId === targetContainerId) {
+                  overIndex = group.itemIds.length
+                }
+
+                if (activeIndex !== -1 && overIndex !== -1) {
+                  // console.log(`Sorting Item ${activeId} in Group ${targetContainerId} from ${activeIndex} to ${overIndex}`);
+                  group.itemIds = arrayMove(
+                    group.itemIds,
+                    activeIndex,
+                    overIndex
+                  )
+                } else {
+                  console.warn('Group sort failed: indices not found', {
+                    activeId,
+                    overId,
+                    activeIndex,
+                    overIndex,
+                    targetContainerId,
+                  })
+                }
+              }
+            }
+          }
+          // B. Moving BETWEEN containers (or using drop zones)
+          else {
+            // console.log(`Moving Item ${activeId} from ${sourceContainerId} to ${targetContainerId} (targetIndex: ${targetIndex}, dropzone: ${targetIsDropZone})`);
+
+            // Remove from source
+            if (sourceContainerId === 'root') {
+              const index = nextState.rootOrder.indexOf(activeId)
+              if (index > -1) nextState.rootOrder.splice(index, 1)
+            } else if (nextState.groups[sourceContainerId]) {
+              const group = nextState.groups[sourceContainerId]
+              const index = group.itemIds.indexOf(activeId)
+              if (index > -1) group.itemIds.splice(index, 1)
+            }
+
+            // Add to target
+            if (targetContainerId === 'root') {
+              nextState.items[activeId].groupId = null // Update item state
+              // Use the pre-calculated targetIndex for root insertion
+              if (
+                targetIndex >= 0 &&
+                targetIndex <= nextState.rootOrder.length
+              ) {
+                // console.log(`Inserting item ${activeId} into root at index ${targetIndex}`);
+                nextState.rootOrder.splice(targetIndex, 0, activeId)
+              } else {
+                console.warn(
+                  `Could not determine valid target index ${targetIndex} in root for ${overId}. Appending.`
+                )
+                nextState.rootOrder.push(activeId) // Fallback append
+              }
+            } else if (nextState.groups[targetContainerId]) {
+              // Moving into a group
+              nextState.items[activeId].groupId = targetContainerId // Update item state
+              const group = nextState.groups[targetContainerId]
+              // Use pre-calculated targetIndex if dropping on item, otherwise use determined index (e.g., end for group header)
+              const insertionIndex =
+                targetIndex !== -1 && targetIndex <= group.itemIds.length
+                  ? targetIndex
+                  : group.itemIds.length
+
+              // console.log(`Inserting item ${activeId} into group ${targetContainerId} at index ${insertionIndex}`);
+              group.itemIds.splice(insertionIndex, 0, activeId)
+            } else {
+              console.error('Invalid target container ID:', targetContainerId)
+              return prevState // Revert state if target is invalid
+            }
+          }
+        }
+
+        return nextState
+      })
+    },
+    [appState]
+  ) // Add appState dependency
 
   const renderOverlay = () => {
     if (!activeId) return null
@@ -539,18 +616,39 @@ const App: React.FC = () => {
       return <SortableItem item={activeItem} isOverlay />
     }
     if (activeType === 'group' && activeGroup) {
-      const groupItems = activeGroup.itemIds
-        .map((id) => appState.items[id])
-        .filter(Boolean) as Item[]
+      // Ensure we get current items for the overlay, as state might have changed slightly
+      const currentGroupState = findGroup(activeGroup.id, appState)
+      const groupItems = currentGroupState
+        ? (currentGroupState.itemIds
+            .map((id) => appState.items[id])
+            .filter(Boolean) as Item[])
+        : []
       return <SortableGroup group={activeGroup} items={groupItems} isOverlay />
     }
     return null
   }
 
+  // Prepare items for SortableContext, including group drop zones potentially
+  const rootSortableItems = useMemo(() => {
+    const items = [...appState.rootOrder]
+    // Add dropzone IDs if an item is being dragged - Note: This might interfere with arrayMove if not handled carefully
+    // For simplicity, let's keep sortable items just the groups and root items. Dropzones are handled separately.
+    // if (activeType === 'item') {
+    //     const dropZoneIds: string[] = [];
+    //     appState.rootOrder.forEach(id => {
+    //         if (appState.groups[id]) {
+    //             dropZoneIds.push(`above-group-${id}`, `below-group-${id}`);
+    //         }
+    //     });
+    //     // This insertion strategy is complex; better rely on Droppable for zones.
+    // }
+    return items
+  }, [appState.rootOrder /*, activeType*/])
+
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners} // Might need refinement for nested + zones
+      collisionDetection={closestCorners}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
@@ -559,10 +657,10 @@ const App: React.FC = () => {
         <h1 className="text-2xl font-bold mb-4">Complex DnD List</h1>
 
         <SortableContext
-          items={appState.rootOrder}
+          items={rootSortableItems}
           strategy={verticalListSortingStrategy}
         >
-          <div className="p-4 bg-gray-100 rounded border border-gray-300 min-h-[300px]">
+          <div className="p-4 bg-gray-100 rounded border border-gray-300 min-h-[300px] space-y-1">
             {rootItemsAndGroups.map((itemOrGroup) => {
               if (itemOrGroup.type === 'item') {
                 return (
@@ -577,7 +675,6 @@ const App: React.FC = () => {
                   .map((id) => appState.items[id])
                   .filter(Boolean) as Item[]
                 return (
-                  // Wrap Group with Drop Zones, only active when an *item* is dragging
                   <DropZoneWrapper
                     key={group.id}
                     groupId={group.id}
