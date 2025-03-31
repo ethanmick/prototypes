@@ -159,7 +159,8 @@ const SortableGroup: React.FC<{ group: Group; dropZones: DropZone[] }> = ({
   group,
   dropZones,
 }) => {
-  const { activeId, isDraggingItem, previewPosition } = useContext(DragContext)
+  const { activeId, isDraggingItem, isDraggingGroup, previewPosition } =
+    useContext(DragContext)
   const {
     attributes,
     listeners,
@@ -195,10 +196,13 @@ const SortableGroup: React.FC<{ group: Group; dropZones: DropZone[] }> = ({
   const showAddToGroupPreview =
     previewPosition?.targetId === group.id && previewPosition?.addToGroup
 
+  // Show drop zones when dragging either items or groups
+  const showDropZones = isDraggingItem || isDraggingGroup
+
   return (
     <>
       {showBeforePreview && <PreviewIndicator />}
-      {topDropZone && isDraggingItem && <DropZoneItem dropZone={topDropZone} />}
+      {topDropZone && showDropZones && <DropZoneItem dropZone={topDropZone} />}
       <motion.div
         ref={setNodeRef}
         style={style}
@@ -219,7 +223,7 @@ const SortableGroup: React.FC<{ group: Group; dropZones: DropZone[] }> = ({
           ))}
         </AnimatePresence>
       </motion.div>
-      {bottomDropZone && isDraggingItem && (
+      {bottomDropZone && showDropZones && (
         <DropZoneItem dropZone={bottomDropZone} />
       )}
       {showAfterPreview && <PreviewIndicator />}
@@ -333,7 +337,10 @@ const DragNDropDemo = () => {
   // Get all sortable IDs including dropZones when dragging
   const sortableIds = useMemo(() => {
     const isDraggingItem = activeItem?.type === 'item'
-    if (isDraggingItem) {
+    const isDraggingGroup = activeItem?.type === 'group'
+
+    // Show drop zones for both item and group dragging
+    if (isDraggingItem || isDraggingGroup) {
       return [...rootItems, ...dropZones.map((dz) => dz.id)]
     }
     return rootItems
@@ -399,22 +406,39 @@ const DragNDropDemo = () => {
 
       // Extract group ID and position from dropzone
       const dropZone = dropZones.find((dz) => dz.id === overId)
-      if (dropZone && activeType === 'item') {
+      if (dropZone) {
         const groupId = dropZone.groupId
         const position = dropZone.position
 
-        if (position === 'top') {
-          setPreviewPosition({
-            targetId: groupId,
-            targetType: 'group',
-            insertPosition: 'before',
-          })
-        } else {
-          setPreviewPosition({
-            targetId: groupId,
-            targetType: 'group',
-            insertPosition: 'after',
-          })
+        if (activeType === 'item') {
+          if (position === 'top') {
+            setPreviewPosition({
+              targetId: groupId,
+              targetType: 'group',
+              insertPosition: 'before',
+            })
+          } else {
+            setPreviewPosition({
+              targetId: groupId,
+              targetType: 'group',
+              insertPosition: 'after',
+            })
+          }
+        } else if (activeType === 'group') {
+          // Also handle group-to-dropzone for clearer previews
+          if (position === 'top') {
+            setPreviewPosition({
+              targetId: groupId,
+              targetType: 'group',
+              insertPosition: 'before',
+            })
+          } else {
+            setPreviewPosition({
+              targetId: groupId,
+              targetType: 'group',
+              insertPosition: 'after',
+            })
+          }
         }
       }
       return
@@ -678,8 +702,44 @@ const DragNDropDemo = () => {
     }
     // Case 2: Dragging a group
     else if (activeType === 'group' && rootItems.includes(activeId)) {
+      // Over a drop zone - position relative to the target group
+      if (overType === 'dropZone') {
+        const dropZone = dropZones.find((dz) => dz.id === overId)
+        if (dropZone) {
+          const groupId = dropZone.groupId
+          const position = dropZone.position
+
+          // Find positions in the root list
+          const activeIndex = rootItems.indexOf(activeId)
+          const targetGroupIndex = rootItems.indexOf(groupId)
+
+          if (activeIndex !== -1 && targetGroupIndex !== -1) {
+            const newRootItems = [...rootItems]
+
+            // Remove the active group from its current position
+            newRootItems.splice(activeIndex, 1)
+
+            // Calculate where to insert it
+            let insertIndex = targetGroupIndex
+            // If the target group comes before the active group,
+            // we need to adjust the insert index down by 1
+            if (targetGroupIndex > activeIndex) {
+              insertIndex--
+            }
+
+            // Insert before or after the target group
+            if (position === 'top') {
+              newRootItems.splice(insertIndex, 0, activeId)
+            } else {
+              newRootItems.splice(insertIndex + 1, 0, activeId)
+            }
+
+            setRootItems(newRootItems)
+          }
+        }
+      }
       // We only reorder groups in the root list
-      if (rootItems.includes(overId)) {
+      else if (rootItems.includes(overId)) {
         const activeIndex = rootItems.indexOf(activeId)
         const overIndex = rootItems.indexOf(overId)
 
