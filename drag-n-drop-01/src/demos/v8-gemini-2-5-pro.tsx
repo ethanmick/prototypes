@@ -29,15 +29,13 @@ import { createPortal } from 'react-dom'
 
 // --- Tailwind Styles (Minimal) ---
 const itemClasses =
-  'block p-3 border border-gray-300 bg-white rounded mb-2 shadow-sm hover:bg-gray-50 cursor-grab'
-// **MODIFIED**: Added `relative` for positioning context if needed later
+  'block p-3 border border-gray-300 bg-white rounded shadow-sm hover:bg-gray-50 cursor-grab' // Removed mb-2, handled by wrapper
 const groupClasses =
-  'relative block p-3 border border-blue-400 bg-blue-50 rounded mb-2 shadow-sm'
-// **MODIFIED**: Added `cursor-grab` directly here
+  'relative block p-3 border border-blue-400 bg-blue-50 rounded shadow-sm'
 const groupHeaderClasses = 'flex justify-between items-center mb-2 cursor-grab'
 const groupTitleClasses = 'font-semibold text-blue-800'
 const groupRemoveButtonClasses =
-  'text-xs text-red-600 hover:text-red-800 focus:outline-none px-1 cursor-pointer' // Ensure button is clickable
+  'text-xs text-red-600 hover:text-red-800 focus:outline-none px-1 cursor-pointer'
 const groupItemsContainerClasses =
   'ml-4 pl-4 border-l border-blue-300 min-h-[20px]'
 const overlayItemClasses =
@@ -48,7 +46,9 @@ const dropIndicatorClasses =
   'bg-blue-200 border-dashed border-2 border-blue-500 h-1 my-1 rounded'
 const addGroupButtonClasses =
   'mt-4 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600'
-const draggingOpacity = 'opacity-30' // Make original item more faded
+const draggingOpacity = 'opacity-30'
+// Consistent spacing for sortable items/groups
+const sortableWrapperMargin = 'mt-2 first:mt-0' // Apply margin-top to all except the very first element
 
 // --- Types ---
 interface BaseItem {
@@ -78,7 +78,6 @@ interface ItemComponentProps {
   item: ItemType
   isOverlay?: boolean
   isDragging?: boolean
-  // **ADDED**: Pass attributes/listeners for the grab handle
   attributes?: React.HTMLAttributes<HTMLDivElement>
   listeners?: ReturnType<typeof useSortable>['listeners']
 }
@@ -86,11 +85,10 @@ const ItemComponent: React.FC<ItemComponentProps> = React.memo(
   ({ item, isOverlay, isDragging, attributes, listeners }) => {
     const style = isOverlay ? overlayItemClasses : itemClasses
     return (
-      // Apply listeners/attributes to the main draggable element
       <div
         className={`${style} ${isDragging ? draggingOpacity : ''}`}
-        {...attributes} // Spread DnDKit attributes for accessibility etc.
-        {...listeners} // Spread DnDKit listeners for grab interactions
+        {...attributes}
+        {...listeners}
       >
         Item: {item.content}
       </div>
@@ -105,7 +103,6 @@ interface GroupComponentProps {
   isOver?: boolean
   onRemove?: (id: UniqueIdentifier) => void
   children?: React.ReactNode
-  // **ADDED**: Pass attributes/listeners specifically for the header grab handle
   headerAttributes?: React.HTMLAttributes<HTMLDivElement>
   headerListeners?: ReturnType<typeof useSortable>['listeners']
 }
@@ -117,30 +114,28 @@ const GroupComponent: React.FC<GroupComponentProps> = React.memo(
     isOver,
     onRemove,
     children,
-    headerAttributes, // Receive header-specific attributes/listeners
+    headerAttributes,
     headerListeners,
   }) => {
     const style = isOverlay ? overlayGroupClasses : groupClasses
     const borderStyle = isOver && !isDragging ? 'border-blue-600 border-2' : ''
 
     return (
-      // The outer div is positioned by SortableGroup's ref, but doesn't have drag listeners itself
       <div
         className={`${style} ${
           isDragging ? draggingOpacity : ''
         } ${borderStyle}`}
       >
-        {/* Apply drag listeners ONLY to the header div */}
         <div
           className={groupHeaderClasses}
-          {...headerAttributes} // Apply DnDKit attributes to header
-          {...headerListeners} // Apply DnDKit listeners to header
+          {...headerAttributes}
+          {...headerListeners}
         >
           <span className={groupTitleClasses}>Group: {group.name}</span>
           {!isOverlay && onRemove && (
             <button
               onClick={(e) => {
-                e.stopPropagation() // VERY IMPORTANT: Prevent drag start when clicking button
+                e.stopPropagation()
                 onRemove(group.id)
               }}
               className={groupRemoveButtonClasses}
@@ -150,7 +145,6 @@ const GroupComponent: React.FC<GroupComponentProps> = React.memo(
             </button>
           )}
         </div>
-        {/* Render children (items) only if not an overlay */}
         {!isOverlay && (
           <div className={groupItemsContainerClasses}>{children}</div>
         )}
@@ -172,9 +166,9 @@ interface SortableItemProps {
 }
 const SortableItem: React.FC<SortableItemProps> = ({ item, isOver }) => {
   const {
-    attributes, // Attributes for accessibility etc.
-    listeners, // Listeners for drag handles
-    setNodeRef, // Ref for dnd-kit to track the element
+    attributes,
+    listeners,
+    setNodeRef,
     transform,
     transition,
     isDragging,
@@ -189,10 +183,8 @@ const SortableItem: React.FC<SortableItemProps> = ({ item, isOver }) => {
   }
 
   return (
-    // setNodeRef on the outer container that gets transformed
-    <div ref={setNodeRef} style={style}>
+    <div ref={setNodeRef} style={style} className={sortableWrapperMargin}>
       {isOver && <div className={dropIndicatorClasses}></div>}
-      {/* Pass attributes/listeners TO the ItemComponent to apply to the grab area */}
       <ItemComponent
         item={item}
         isDragging={isDragging}
@@ -231,10 +223,9 @@ const SortableGroupItem: React.FC<SortableGroupItemProps> = ({
   }
 
   return (
-    // setNodeRef on the outer container that gets transformed
-    <div ref={setNodeRef} style={style}>
+    // Apply margin only if not the first item inside the group visually
+    <div ref={setNodeRef} style={style} className={sortableWrapperMargin}>
       {isOver && <div className={dropIndicatorClasses}></div>}
-      {/* Pass attributes/listeners TO the ItemComponent */}
       <ItemComponent
         item={item}
         isDragging={isDragging}
@@ -258,9 +249,9 @@ const SortableGroup: React.FC<SortableGroupProps> = ({
   overId,
 }) => {
   const {
-    attributes, // These are for the GROUP's drag handle (header)
-    listeners, // These are for the GROUP's drag handle (header)
-    setNodeRef: setGroupNodeRef, // Ref for the ENTIRE group block for positioning
+    attributes,
+    listeners,
+    setNodeRef: setGroupNodeRef,
     transform,
     transition,
     isDragging,
@@ -285,18 +276,19 @@ const SortableGroup: React.FC<SortableGroupProps> = ({
   const isDraggingItem = activeItem?.type === 'item'
 
   return (
-    // setNodeRef for the entire block that dnd-kit will move
-    <div ref={setGroupNodeRef} style={groupStyle}>
+    <div
+      ref={setGroupNodeRef}
+      style={groupStyle}
+      className={sortableWrapperMargin}
+    >
       <GroupComponent
         group={group}
         isDragging={isDragging}
         isOver={isOverGroupDirectly && isDraggingItem}
         onRemove={onRemoveGroup}
-        // **MODIFIED**: Pass the group's attributes/listeners specifically for the header
         headerAttributes={attributes}
         headerListeners={listeners}
       >
-        {/* Sortable context for ITEMS INSIDE the group */}
         <SortableContext
           items={groupItemIds}
           strategy={verticalListSortingStrategy}
@@ -305,7 +297,7 @@ const SortableGroup: React.FC<SortableGroupProps> = ({
             isDraggingItem &&
             group.items.length === 0 && (
               <div
-                className={`${itemClasses} opacity-50 border-dashed border-blue-400`}
+                className={`${itemClasses} opacity-50 border-dashed border-blue-400 ${sortableWrapperMargin}`}
               >
                 Drop item here
               </div>
@@ -327,7 +319,7 @@ const SortableGroup: React.FC<SortableGroupProps> = ({
   )
 }
 
-// --- Global Helper Function (accessible outside component scope if needed, or passed down) ---
+// --- Global Helper Function ---
 // eslint-disable-next-line prefer-const
 let globalItemsRef: React.MutableRefObject<ListItem[]> = { current: [] }
 
@@ -335,7 +327,7 @@ const findItemOrGroupGlobally = (
   id: UniqueIdentifier
 ): { item: ListItem | ItemType | null; parentId: UniqueIdentifier | null } => {
   const items = globalItemsRef.current
-  if (!items) return { item: null, parentId: null } // Guard against initial render
+  if (!items) return { item: null, parentId: null }
   const topLevelItem = items.find((i) => i.id === id)
   if (topLevelItem) {
     return { item: topLevelItem, parentId: null }
@@ -351,7 +343,7 @@ const findItemOrGroupGlobally = (
   return { item: null, parentId: null }
 }
 
-// Add this for smooth animations
+// --- Layout Animation Function ---
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const animateLayoutChanges: AnimateLayoutChanges = (args) =>
   defaultAnimateLayoutChanges({ ...args, wasDragging: true })
@@ -386,7 +378,6 @@ const DragDropList: React.FC = () => {
   const [overId, setOverId] = useState<UniqueIdentifier | null>(null)
 
   const sensors = useSensors(
-    // Wait a few pixels before starting drag to allow button clicks etc.
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
@@ -414,7 +405,8 @@ const DragDropList: React.FC = () => {
     )
   }, [])
 
-  const handleDragEnd = useCallback(
+  // Use the modified handleDragEnd from above
+  const handleDragEndCallback = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event
       setActiveId(null)
@@ -462,8 +454,52 @@ const DragDropList: React.FC = () => {
         const isOverGroupContainer = overData?.type === 'group'
         const isOverTopLevelItem = overData?.type === 'item'
 
-        // 1. Determine Target Parent and Index
-        if (isOverGroupItem) {
+        // --- Determine Target Parent and Index ---
+
+        // Special Handling: Dragging FROM a group TO the root level
+        // Check if source was a group and target is NOT a group item or group container
+        const isDraggingOutOfGroup =
+          sourceParentId && !isOverGroupItem && !isOverGroupContainer
+
+        if (isDraggingOutOfGroup) {
+          targetParentId = null // Target is definitely the root
+
+          const sourceGroupIndex = currentItems.findIndex(
+            (g) => g.id === sourceParentId
+          )
+          const currentOverIndex = currentItems.findIndex(
+            (i) => i.id === overId
+          ) // Index of element hovered over in root
+
+          if (sourceGroupIndex !== -1) {
+            // If dropped on/before the original group position, target index is the group's original index
+            if (
+              currentOverIndex !== -1 &&
+              currentOverIndex <= sourceGroupIndex
+            ) {
+              targetIndex = sourceGroupIndex
+            }
+            // If dropped after the original group position (could be on item or in space)
+            else if (
+              currentOverIndex !== -1 &&
+              currentOverIndex > sourceGroupIndex
+            ) {
+              // Target index should be where the hovered item is (will insert before it)
+              targetIndex = currentOverIndex
+            } else {
+              // Dropped in empty space after the group? Place right after the group's original position.
+              targetIndex = sourceGroupIndex + 1
+            }
+          } else {
+            // Fallback if source group not found
+            targetIndex = currentItems.length
+          }
+          console.log(
+            `Special Case: Dragging out of Group ${sourceParentId}. Determined Target Index: ${targetIndex}`
+          )
+
+          // --- Standard Target Determination (Moving within root, within group, into group) ---
+        } else if (isOverGroupItem) {
           targetParentId = overData.groupId!
           const targetGroup = currentItems.find(
             (g) => g.id === targetParentId && g.type === 'group'
@@ -476,48 +512,40 @@ const DragDropList: React.FC = () => {
           ) as GroupType | undefined
           if (targetGroup) {
             if (draggedItem.type === 'item') {
-              // Dropping item onto group container?
               targetParentId = overId
               targetIndex = targetGroup.items.length // Add to end
             } else {
-              // Dropping group onto another group container? Target top level before it.
+              // Dragging group over group -> target root before hovered group
               targetParentId = null
               targetIndex = currentItems.findIndex((i) => i.id === overId)
             }
           }
         } else if (isOverTopLevelItem) {
+          // Moving within root OR dragging group over top-level item
           targetParentId = null
-          targetIndex = currentItems.findIndex((i) => i.id === overId)
+          targetIndex = currentItems.findIndex((i) => i.id === overId) // Target before hovered item
         } else {
-          // Fallback / Dropping near edge / Into empty space
+          // --- Fallback for Ambiguous Drops (e.g., end of list, or over context) ---
+          // Check if overId matches *any* top-level item/group ID
           const topLevelIndex = currentItems.findIndex((i) => i.id === overId)
           if (topLevelIndex !== -1) {
-            // Dropped on a top-level item/group boundary
+            // If it matches, assume drop is intended before this item/group in root
             targetParentId = null
             targetIndex = topLevelIndex
-          } else if (sourceParentId) {
-            // Dragging out of a group into space? Place after source group.
-            const sourceGroupIndex = currentItems.findIndex(
-              (g) => g.id === sourceParentId
-            )
-            if (sourceGroupIndex !== -1) {
-              targetParentId = null
-              targetIndex = sourceGroupIndex + 1
-            } else {
-              // Fallback: end of list
-              targetParentId = null
-              targetIndex = currentItems.length
-            }
           } else {
-            // Fallback: end of list
+            // Fallback: end of root list
             targetParentId = null
             targetIndex = currentItems.length
           }
+          console.log('Fallback Target Determination:', {
+            targetParentId: targetParentId ?? 'root',
+            targetIndex,
+          })
         }
 
+        // Failsafe check for targetIndex (should be less likely now)
         if (targetIndex === -1) {
-          console.warn('Could not determine target index, falling back to end.')
-          // Attempt recovery
+          console.warn('Target index calculation failed. Falling back.')
           if (targetParentId) {
             const targetGroup = currentItems.find(
               (g) => g.id === targetParentId && g.type === 'group'
@@ -531,21 +559,23 @@ const DragDropList: React.FC = () => {
         // Prevent nesting groups
         if (targetParentId && draggedItem.type === 'group') return currentItems
 
-        console.log('Determined Target:', {
+        console.log('Final Determined Target:', {
           targetParentId: targetParentId ?? 'root',
           targetIndex,
         })
 
-        // 2. Perform Move
-        const newItems = [...currentItems]
+        // --- Perform Move ---
+        let newItems = [...currentItems]
 
-        // If moving within the same container, use arrayMove
+        // Use arrayMove if moving within the SAME container
         if (sourceParentId === targetParentId) {
+          console.log('Moving within container:', targetParentId ?? 'Root')
           if (targetParentId === null) {
             // Root level
             const oldIndex = newItems.findIndex((i) => i.id === activeId)
-            if (oldIndex !== -1)
+            if (oldIndex !== -1) {
               return arrayMove(newItems, oldIndex, targetIndex)
+            }
           } else {
             // Same group
             const groupIndex = newItems.findIndex(
@@ -554,14 +584,11 @@ const DragDropList: React.FC = () => {
             if (groupIndex !== -1 && newItems[groupIndex].type === 'group') {
               const group = newItems[groupIndex] as GroupType
               const oldIndex = group.items.findIndex((i) => i.id === activeId)
-              // Adjust targetIndex for arrayMove if moving down in the same list
-              const correctedTargetIndex =
-                oldIndex < targetIndex ? targetIndex - 1 : targetIndex
               if (oldIndex !== -1) {
                 const updatedItems = arrayMove(
                   group.items,
                   oldIndex,
-                  correctedTargetIndex
+                  targetIndex
                 )
                 newItems[groupIndex] = { ...group, items: updatedItems }
                 return newItems
@@ -569,10 +596,17 @@ const DragDropList: React.FC = () => {
             }
           }
         }
-        // If moving between containers, remove from source, insert into target
+        // Use remove/insert if moving BETWEEN different containers
         else {
+          console.log(
+            'Moving between containers:',
+            sourceParentId ?? 'Root',
+            '->',
+            targetParentId ?? 'Root'
+          )
           let itemToMove: ItemType | GroupType | null = null
-          // Remove from source
+
+          // Remove from source (modifies newItems directly or updates group within newItems)
           if (sourceParentId) {
             const sourceGroupIndex = newItems.findIndex(
               (g) => g.id === sourceParentId
@@ -587,24 +621,30 @@ const DragDropList: React.FC = () => {
               )
               if (itemIndex > -1) {
                 itemToMove = sourceGroup.items[itemIndex]
-                const updatedItems = [...sourceGroup.items]
-                updatedItems.splice(itemIndex, 1)
+                const updatedGroupItems = sourceGroup.items.filter(
+                  (i) => i.id !== activeId
+                )
                 newItems[sourceGroupIndex] = {
                   ...sourceGroup,
-                  items: updatedItems,
-                }
+                  items: updatedGroupItems,
+                } // Update group in newItems
               }
             }
           } else {
+            // Remove from root level
             const itemIndex = newItems.findIndex((i) => i.id === activeId)
             if (itemIndex > -1) {
-              ;[itemToMove] = newItems.splice(itemIndex, 1)
+              itemToMove = newItems[itemIndex]
+              newItems = newItems.filter((i) => i.id !== activeId) // Reassign newItems without the element
             }
           }
 
-          if (!itemToMove) return currentItems // Failed to remove
+          if (!itemToMove) {
+            console.error('Failed to remove itemToMove')
+            return currentItems
+          }
 
-          // Insert into target
+          // Insert into target (modifies newItems array further)
           if (targetParentId) {
             // Target is a group
             const targetGroupIndex = newItems.findIndex(
@@ -620,13 +660,14 @@ const DragDropList: React.FC = () => {
                 0,
                 Math.min(targetIndex, updatedItems.length)
               )
-              updatedItems.splice(safeTargetIndex, 0, itemToMove as ItemType)
+              updatedItems.splice(safeTargetIndex, 0, itemToMove as ItemType) // Assert ItemType
               newItems[targetGroupIndex] = {
                 ...targetGroup,
                 items: updatedItems,
-              }
+              } // Update group in newItems
             } else {
-              return currentItems /* Target group not found */
+              console.error('Target group for insert not found', targetParentId)
+              return currentItems
             }
           } else {
             // Target is root
@@ -634,15 +675,16 @@ const DragDropList: React.FC = () => {
               0,
               Math.min(targetIndex, newItems.length)
             )
-            newItems.splice(safeTargetIndex, 0, itemToMove)
+            newItems.splice(safeTargetIndex, 0, itemToMove) // Insert into newItems
           }
-          return newItems
+          return newItems // Return the final state of newItems
         }
-        return currentItems // Return original if no move logic matched
+        console.warn('Move logic did not return new items array.')
+        return currentItems
       })
     },
     [findItemOrGroup]
-  )
+  ) // Dependency injection for findItemOrGroup
 
   const handleAddGroup = () => {
     const newGroupId = generateId('group')
@@ -673,13 +715,12 @@ const DragDropList: React.FC = () => {
       collisionDetection={collisionDetectionStrategy}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
-      onDragEnd={handleDragEnd}
+      onDragEnd={handleDragEndCallback} // Use the renamed callback
       onDragCancel={() => {
         setActiveId(null)
         setOverId(null)
       }}
-      // **ADDED**: Enable layout animations
-      // animateLayoutChanges={animateLayoutChanges}
+      // animateLayoutChanges={animateLayoutChanges} // Enable for smoother visuals
     >
       <div className="p-4 max-w-md mx-auto">
         <h1 className="text-xl font-bold mb-4">Complex Drag & Drop List</h1>
