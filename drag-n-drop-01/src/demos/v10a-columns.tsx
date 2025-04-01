@@ -44,6 +44,9 @@ interface DropZone extends BaseItem {
   position: 'top' | 'bottom'
 }
 
+// Define which column an item is in
+type Column = 'left' | 'right'
+
 type DraggableItem = Item | Group
 
 // Preview position type
@@ -54,6 +57,8 @@ interface PreviewPosition {
   insertPosition?: 'before' | 'after'
   // For groups - are we adding to group?
   addToGroup?: boolean
+  // Tracking which column the preview is in
+  column?: Column
 }
 
 // === Context ===
@@ -63,6 +68,7 @@ interface DragContextType {
   isDraggingGroup: boolean
   overDropZone: string | null
   previewPosition: PreviewPosition | null
+  activeColumn: Column | null
 }
 
 const DragContext = createContext<DragContextType>({
@@ -71,6 +77,7 @@ const DragContext = createContext<DragContextType>({
   isDraggingGroup: false,
   overDropZone: null,
   previewPosition: null,
+  activeColumn: null,
 })
 
 // === Components ===
@@ -278,11 +285,15 @@ const DragNDropDemo = () => {
     { id: 'group-3', type: 'group', title: 'Group C', items: [] },
   ])
 
-  // Root-level items that are not in any group
-  const [rootItems, setRootItems] = useState<string[]>([
+  // Left column - only items
+  const [leftColumnItems, setLeftColumnItems] = useState<string[]>([
     'item-1',
-    'group-1',
     'item-2',
+  ])
+
+  // Right column - can contain items and groups (renamed from rootItems)
+  const [rightColumnItems, setRightColumnItems] = useState<string[]>([
+    'group-1',
     'item-3',
     'group-2',
     'item-4',
@@ -314,6 +325,7 @@ const DragNDropDemo = () => {
   // Track active element and dragging state
   const [activeId, setActiveId] = useState<string | null>(null)
   const [activeItem, setActiveItem] = useState<DraggableItem | null>(null)
+  const [activeColumn, setActiveColumn] = useState<Column | null>(null)
   const [overDropZone, setOverDropZone] = useState<string | null>(null)
   const [previewPosition, setPreviewPosition] =
     useState<PreviewPosition | null>(null)
@@ -334,17 +346,44 @@ const DragNDropDemo = () => {
     return null
   }
 
-  // Get all sortable IDs including dropZones when dragging
-  const sortableIds = useMemo(() => {
+  // Get column-specific sortable IDs
+  const getColumnSortableIds = (column: Column): string[] => {
+    const columnItems = column === 'left' ? leftColumnItems : rightColumnItems
     const isDraggingItem = activeItem?.type === 'item'
     const isDraggingGroup = activeItem?.type === 'group'
 
-    // Show drop zones for both item and group dragging
-    if (isDraggingItem || isDraggingGroup) {
-      return [...rootItems, ...dropZones.map((dz) => dz.id)]
+    // In the right column, include drop zones when dragging
+    if (column === 'right' && (isDraggingItem || isDraggingGroup)) {
+      return [...columnItems, ...dropZones.map((dz) => dz.id)]
     }
-    return rootItems
-  }, [rootItems, dropZones, activeItem])
+
+    return columnItems
+  }
+
+  // Get all sortable IDs for both columns
+  const leftSortableIds = useMemo(
+    () => getColumnSortableIds('left'),
+    [leftColumnItems, activeItem, dropZones]
+  )
+  const rightSortableIds = useMemo(
+    () => getColumnSortableIds('right'),
+    [rightColumnItems, activeItem, dropZones]
+  )
+
+  // Determine which column an item is in
+  const getItemColumn = (id: string): Column | null => {
+    if (leftColumnItems.includes(id)) return 'left'
+    if (rightColumnItems.includes(id)) return 'right'
+
+    // Check if it's in a group in the right column
+    for (const groupId of rightColumnItems) {
+      if (!groupId.startsWith('group-')) continue
+      const group = groups.find((g) => g.id === groupId)
+      if (group && group.items.some((item) => item.id === id)) return 'right'
+    }
+
+    return null
+  }
 
   // Provide context for drag state
   const dragContextValue = useMemo(
@@ -354,8 +393,9 @@ const DragNDropDemo = () => {
       isDraggingGroup: activeItem?.type === 'group',
       overDropZone,
       previewPosition,
+      activeColumn,
     }),
-    [activeId, activeItem, overDropZone, previewPosition]
+    [activeId, activeItem, overDropZone, previewPosition, activeColumn]
   )
 
   // Find the item or group by ID
@@ -377,6 +417,9 @@ const DragNDropDemo = () => {
 
     const foundItem = findItemById(id)
     setActiveItem(foundItem)
+
+    // Determine which column we're dragging from
+    setActiveColumn(getItemColumn(id))
   }
 
   // Handle drag over event
@@ -394,13 +437,23 @@ const DragNDropDemo = () => {
     const activeType = getItemType(activeId)
     const overType = getItemType(overId)
 
-    if (!activeType || !overType) {
+    // Determine which column we're over
+    let overColumn: Column | null = null
+
+    if (overType === 'dropZone') {
+      // Drop zones are always in the right column
+      overColumn = 'right'
+    } else {
+      overColumn = getItemColumn(overId)
+    }
+
+    if (!activeType || !overType || !overColumn) {
       setOverDropZone(null)
       setPreviewPosition(null)
       return
     }
 
-    // Handle drop zone hover
+    // Handle drop zone hover (only in right column)
     if (overType === 'dropZone') {
       setOverDropZone(overId)
 
@@ -416,12 +469,14 @@ const DragNDropDemo = () => {
               targetId: groupId,
               targetType: 'group',
               insertPosition: 'before',
+              column: 'right',
             })
           } else {
             setPreviewPosition({
               targetId: groupId,
               targetType: 'group',
               insertPosition: 'after',
+              column: 'right',
             })
           }
         } else if (activeType === 'group') {
@@ -431,12 +486,14 @@ const DragNDropDemo = () => {
               targetId: groupId,
               targetType: 'group',
               insertPosition: 'before',
+              column: 'right',
             })
           } else {
             setPreviewPosition({
               targetId: groupId,
               targetType: 'group',
               insertPosition: 'after',
+              column: 'right',
             })
           }
         }
@@ -449,69 +506,82 @@ const DragNDropDemo = () => {
     // Preview for dragging an item
     if (activeType === 'item') {
       if (overType === 'item') {
-        // Calculate whether to show the preview above or below the target item
-        const activeIndex = rootItems.indexOf(activeId)
-        const overIndex = rootItems.indexOf(overId)
+        const columnItems =
+          overColumn === 'left' ? leftColumnItems : rightColumnItems
 
-        // Check if both items are in the root list
-        if (activeIndex !== -1 && overIndex !== -1) {
-          setPreviewPosition({
-            targetId: overId,
-            targetType: 'item',
-            insertPosition: activeIndex < overIndex ? 'after' : 'before',
-          })
-        } else {
-          // Handle items in groups
-          // Find if both items are in the same group
-          let foundInGroup = false
-          groups.forEach((group) => {
-            const activeItemIndex = group.items.findIndex(
-              (item) => item.id === activeId
-            )
-            const overItemIndex = group.items.findIndex(
-              (item) => item.id === overId
-            )
+        // If both items are in the same column list, just show preview
+        if (columnItems.includes(activeId) && columnItems.includes(overId)) {
+          const activeIndex = columnItems.indexOf(activeId)
+          const overIndex = columnItems.indexOf(overId)
 
-            if (activeItemIndex >= 0 && overItemIndex >= 0) {
-              foundInGroup = true
-              setPreviewPosition({
-                targetId: overId,
-                targetType: 'item',
-                insertPosition:
-                  activeItemIndex < overItemIndex ? 'after' : 'before',
-              })
-            }
-          })
-
-          // If item is not in a group but target is in root
-          if (!foundInGroup && rootItems.includes(overId)) {
+          if (activeIndex !== -1 && overIndex !== -1) {
             setPreviewPosition({
               targetId: overId,
               targetType: 'item',
-              insertPosition: 'before',
+              insertPosition: activeIndex < overIndex ? 'after' : 'before',
+              column: overColumn,
             })
           }
         }
-      } else if (overType === 'group') {
+        // If item is moving between columns or from a group
+        else {
+          // For items moving from a group or another column
+          setPreviewPosition({
+            targetId: overId,
+            targetType: 'item',
+            insertPosition: 'before',
+            column: overColumn,
+          })
+
+          // If we're dragging from a group in the right column
+          if (
+            !leftColumnItems.includes(activeId) &&
+            !rightColumnItems.includes(activeId)
+          ) {
+            groups.forEach((group) => {
+              const itemIndex = group.items.findIndex(
+                (item) => item.id === activeId
+              )
+              if (itemIndex >= 0) {
+                // Item is in a group, show preview relative to its position
+                const overItemIndex = group.items.findIndex(
+                  (item) => item.id === overId
+                )
+                if (overItemIndex >= 0) {
+                  setPreviewPosition({
+                    targetId: overId,
+                    targetType: 'item',
+                    insertPosition:
+                      itemIndex < overItemIndex ? 'after' : 'before',
+                    column: 'right',
+                  })
+                }
+              }
+            })
+          }
+        }
+      } else if (overType === 'group' && overColumn === 'right') {
         // When dragging an item over a group, show a highlight to indicate it would be added to the group
         setPreviewPosition({
           targetId: overId,
           targetType: 'group',
           addToGroup: true,
+          column: 'right',
         })
       }
     }
-    // Preview for dragging a group
-    else if (activeType === 'group' && rootItems.includes(activeId)) {
-      if (rootItems.includes(overId)) {
-        const activeIndex = rootItems.indexOf(activeId)
-        const overIndex = rootItems.indexOf(overId)
+    // Preview for dragging a group (only possible in right column)
+    else if (activeType === 'group' && rightColumnItems.includes(activeId)) {
+      if (rightColumnItems.includes(overId)) {
+        const activeIndex = rightColumnItems.indexOf(activeId)
+        const overIndex = rightColumnItems.indexOf(overId)
 
         if (activeIndex !== -1 && overIndex !== -1) {
           setPreviewPosition({
             targetId: overId,
             targetType: overType,
             insertPosition: activeIndex < overIndex ? 'after' : 'before',
+            column: 'right',
           })
         }
       }
@@ -525,6 +595,7 @@ const DragNDropDemo = () => {
     if (!over) {
       setActiveId(null)
       setActiveItem(null)
+      setActiveColumn(null)
       setOverDropZone(null)
       setPreviewPosition(null)
       return
@@ -536,6 +607,7 @@ const DragNDropDemo = () => {
     if (activeId === overId) {
       setActiveId(null)
       setActiveItem(null)
+      setActiveColumn(null)
       setOverDropZone(null)
       setPreviewPosition(null)
       return
@@ -544,9 +616,28 @@ const DragNDropDemo = () => {
     const activeType = getItemType(activeId)
     const overType = getItemType(overId)
 
+    // Determine source and target columns
+    const sourceColumn = getItemColumn(activeId)
+    let targetColumn: Column | null = null
+
+    if (overType === 'dropZone') {
+      targetColumn = 'right' // Drop zones are always in the right column
+    } else {
+      targetColumn = getItemColumn(overId)
+    }
+
+    if (!activeType || !overType || !targetColumn) {
+      setActiveId(null)
+      setActiveItem(null)
+      setActiveColumn(null)
+      setOverDropZone(null)
+      setPreviewPosition(null)
+      return
+    }
+
     // Case 1: Dragging an item
     if (activeType === 'item') {
-      // 1a: Over a drop zone - add to or remove from group
+      // 1a: Over a drop zone (right column only)
       if (overType === 'dropZone') {
         const dropZone = dropZones.find((dz) => dz.id === overId)
         if (dropZone) {
@@ -572,28 +663,39 @@ const DragNDropDemo = () => {
               return group
             })
 
-            // Make sure to remove the item from the root list first
-            // whether it's there or being moved from a group
-            const newRootItems = rootItems.filter((id) => id !== activeId)
+            // Remove the item from its original location, either left column or right column root
+            let newLeftColumnItems = [...leftColumnItems]
+            let newRightColumnItems = [...rightColumnItems]
 
-            // Get the group's position in the root list
-            const groupIndex = newRootItems.indexOf(targetGroup.id)
-
-            if (position === 'top') {
-              // Insert the item above the group in the root list
-              newRootItems.splice(groupIndex, 0, activeId)
-            } else {
-              // Insert the item below the group in the root list
-              newRootItems.splice(groupIndex + 1, 0, activeId)
+            if (leftColumnItems.includes(activeId)) {
+              newLeftColumnItems = newLeftColumnItems.filter(
+                (id) => id !== activeId
+              )
+            } else if (rightColumnItems.includes(activeId)) {
+              newRightColumnItems = newRightColumnItems.filter(
+                (id) => id !== activeId
+              )
             }
 
-            setRootItems(newRootItems)
+            // Get the group's position in the right column
+            const groupIndex = newRightColumnItems.indexOf(targetGroup.id)
+
+            if (position === 'top') {
+              // Insert the item above the group in the right column
+              newRightColumnItems.splice(groupIndex, 0, activeId)
+            } else {
+              // Insert the item below the group in the right column
+              newRightColumnItems.splice(groupIndex + 1, 0, activeId)
+            }
+
+            setLeftColumnItems(newLeftColumnItems)
+            setRightColumnItems(newRightColumnItems)
             setGroups(newGroups)
           }
         }
       }
-      // 1b: Over a group - add to group
-      else if (overType === 'group') {
+      // 1b: Over a group (right column only)
+      else if (overType === 'group' && targetColumn === 'right') {
         // Only proceed if we are not over a highlighted dropzone
         if (!overDropZone) {
           const targetGroup = groups.find((g) => g.id === overId)
@@ -625,83 +727,133 @@ const DragNDropDemo = () => {
               return group
             })
 
-            // Make sure to remove the item from the root list
-            // to prevent duplicate keys
-            const newRootItems = rootItems.filter((id) => id !== activeId)
+            // Remove the item from either left or right column
+            let newLeftColumnItems = [...leftColumnItems]
+            let newRightColumnItems = [...rightColumnItems]
 
-            setRootItems(newRootItems)
+            if (leftColumnItems.includes(activeId)) {
+              newLeftColumnItems = newLeftColumnItems.filter(
+                (id) => id !== activeId
+              )
+            } else if (rightColumnItems.includes(activeId)) {
+              newRightColumnItems = newRightColumnItems.filter(
+                (id) => id !== activeId
+              )
+            }
+
+            setLeftColumnItems(newLeftColumnItems)
+            setRightColumnItems(newRightColumnItems)
             setGroups(updatedGroups)
           }
         }
       }
-      // 1c: Over another item - reorder in the list
+      // 1c: Over another item - handle moving between columns or reordering
       else if (overType === 'item') {
-        // If both items are in the root list, just reorder
-        if (rootItems.includes(activeId) && rootItems.includes(overId)) {
-          const activeIndex = rootItems.indexOf(activeId)
-          const overIndex = rootItems.indexOf(overId)
-
-          if (activeIndex !== -1 && overIndex !== -1) {
-            setRootItems(arrayMove(rootItems, activeIndex, overIndex))
-          }
-        }
-        // If target item is in root but active is in a group, move to root
-        else if (!rootItems.includes(activeId) && rootItems.includes(overId)) {
-          // Find which group contains the active item
-          const updatedGroups = [...groups]
-
-          groups.forEach((group, groupIndex) => {
-            const itemIndex = group.items.findIndex(
-              (item) => item.id === activeId
+        // Case: Moving between columns
+        if (sourceColumn !== targetColumn) {
+          // Remove from source column
+          if (sourceColumn === 'left') {
+            setLeftColumnItems((prevItems) =>
+              prevItems.filter((id) => id !== activeId)
             )
-            if (itemIndex >= 0) {
-              updatedGroups[groupIndex] = {
-                ...group,
-                items: group.items.filter((item) => item.id !== activeId),
-              }
-            }
-          })
-
-          // Make sure the item is not already in the root list
-          const newRootItems = rootItems.filter((id) => id !== activeId)
-
-          // Add to root items near the over item
-          const overIndex = newRootItems.indexOf(overId)
-          newRootItems.splice(overIndex, 0, activeId)
-
-          setRootItems(newRootItems)
-          setGroups(updatedGroups)
-        }
-        // If both items are in the same group, reorder within the group
-        else {
-          // Find if both items are in the same group
-          groups.forEach((group, groupIndex) => {
-            const activeItemIndex = group.items.findIndex(
-              (item) => item.id === activeId
-            )
-            const overItemIndex = group.items.findIndex(
-              (item) => item.id === overId
-            )
-
-            if (activeItemIndex >= 0 && overItemIndex >= 0) {
-              const newGroupItems = arrayMove(
-                group.items,
-                activeItemIndex,
-                overItemIndex
+          } else if (sourceColumn === 'right') {
+            // If in root items
+            if (rightColumnItems.includes(activeId)) {
+              setRightColumnItems((prevItems) =>
+                prevItems.filter((id) => id !== activeId)
               )
+            }
+            // If in a group, remove from that group
+            else {
               const updatedGroups = [...groups]
-              updatedGroups[groupIndex] = {
-                ...group,
-                items: newGroupItems,
-              }
+              groups.forEach((group, index) => {
+                const itemIndex = group.items.findIndex(
+                  (item) => item.id === activeId
+                )
+                if (itemIndex >= 0) {
+                  updatedGroups[index] = {
+                    ...group,
+                    items: group.items.filter((item) => item.id !== activeId),
+                  }
+                }
+              })
               setGroups(updatedGroups)
             }
-          })
+          }
+
+          // Add to target column
+          if (targetColumn === 'left') {
+            const overIndex = leftColumnItems.indexOf(overId)
+            setLeftColumnItems((prevItems) => {
+              const newItems = [...prevItems]
+              newItems.splice(overIndex, 0, activeId)
+              return newItems
+            })
+          } else if (targetColumn === 'right') {
+            const overIndex = rightColumnItems.indexOf(overId)
+            setRightColumnItems((prevItems) => {
+              const newItems = [...prevItems]
+              newItems.splice(overIndex, 0, activeId)
+              return newItems
+            })
+          }
+        }
+        // Case: Reordering within the same column
+        else {
+          if (targetColumn === 'left') {
+            const activeIndex = leftColumnItems.indexOf(activeId)
+            const overIndex = leftColumnItems.indexOf(overId)
+            if (activeIndex !== -1 && overIndex !== -1) {
+              setLeftColumnItems(
+                arrayMove(leftColumnItems, activeIndex, overIndex)
+              )
+            }
+          } else if (targetColumn === 'right') {
+            // If both items are in the root list, just reorder
+            if (
+              rightColumnItems.includes(activeId) &&
+              rightColumnItems.includes(overId)
+            ) {
+              const activeIndex = rightColumnItems.indexOf(activeId)
+              const overIndex = rightColumnItems.indexOf(overId)
+              if (activeIndex !== -1 && overIndex !== -1) {
+                setRightColumnItems(
+                  arrayMove(rightColumnItems, activeIndex, overIndex)
+                )
+              }
+            }
+            // If both items are in the same group, reorder within the group
+            else {
+              // Find if both items are in the same group
+              groups.forEach((group, groupIndex) => {
+                const activeItemIndex = group.items.findIndex(
+                  (item) => item.id === activeId
+                )
+                const overItemIndex = group.items.findIndex(
+                  (item) => item.id === overId
+                )
+
+                if (activeItemIndex >= 0 && overItemIndex >= 0) {
+                  const newGroupItems = arrayMove(
+                    group.items,
+                    activeItemIndex,
+                    overItemIndex
+                  )
+                  const updatedGroups = [...groups]
+                  updatedGroups[groupIndex] = {
+                    ...group,
+                    items: newGroupItems,
+                  }
+                  setGroups(updatedGroups)
+                }
+              })
+            }
+          }
         }
       }
     }
-    // Case 2: Dragging a group
-    else if (activeType === 'group' && rootItems.includes(activeId)) {
+    // Case 2: Dragging a group (only in right column)
+    else if (activeType === 'group' && rightColumnItems.includes(activeId)) {
       // Over a drop zone - position relative to the target group
       if (overType === 'dropZone') {
         const dropZone = dropZones.find((dz) => dz.id === overId)
@@ -709,15 +861,15 @@ const DragNDropDemo = () => {
           const groupId = dropZone.groupId
           const position = dropZone.position
 
-          // Find positions in the root list
-          const activeIndex = rootItems.indexOf(activeId)
-          const targetGroupIndex = rootItems.indexOf(groupId)
+          // Find positions in the right column
+          const activeIndex = rightColumnItems.indexOf(activeId)
+          const targetGroupIndex = rightColumnItems.indexOf(groupId)
 
           if (activeIndex !== -1 && targetGroupIndex !== -1) {
-            const newRootItems = [...rootItems]
+            const newRightColumnItems = [...rightColumnItems]
 
             // Remove the active group from its current position
-            newRootItems.splice(activeIndex, 1)
+            newRightColumnItems.splice(activeIndex, 1)
 
             // Calculate where to insert it
             let insertIndex = targetGroupIndex
@@ -729,36 +881,39 @@ const DragNDropDemo = () => {
 
             // Insert before or after the target group
             if (position === 'top') {
-              newRootItems.splice(insertIndex, 0, activeId)
+              newRightColumnItems.splice(insertIndex, 0, activeId)
             } else {
-              newRootItems.splice(insertIndex + 1, 0, activeId)
+              newRightColumnItems.splice(insertIndex + 1, 0, activeId)
             }
 
-            setRootItems(newRootItems)
+            setRightColumnItems(newRightColumnItems)
           }
         }
       }
-      // We only reorder groups in the root list
-      else if (rootItems.includes(overId)) {
-        const activeIndex = rootItems.indexOf(activeId)
-        const overIndex = rootItems.indexOf(overId)
+      // We only reorder groups in the right column
+      else if (rightColumnItems.includes(overId)) {
+        const activeIndex = rightColumnItems.indexOf(activeId)
+        const overIndex = rightColumnItems.indexOf(overId)
 
         if (activeIndex !== -1 && overIndex !== -1) {
-          setRootItems(arrayMove(rootItems, activeIndex, overIndex))
+          setRightColumnItems(
+            arrayMove(rightColumnItems, activeIndex, overIndex)
+          )
         }
       }
     }
 
     setActiveId(null)
     setActiveItem(null)
+    setActiveColumn(null)
     setOverDropZone(null)
     setPreviewPosition(null)
   }
 
   return (
-    <div className="p-6 max-w-2xl mx-auto">
+    <div className="p-6 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold mb-6 text-gray-800">
-        Complex Drag and Drop Demo
+        Two-Column Drag and Drop Demo
       </h1>
 
       <DragContext.Provider value={dragContextValue}>
@@ -769,36 +924,75 @@ const DragNDropDemo = () => {
           onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
         >
-          <SortableContext
-            items={sortableIds}
-            strategy={verticalListSortingStrategy}
-          >
-            <div className="space-y-1">
-              <AnimatePresence mode="popLayout">
-                {rootItems.map((id) => {
-                  const itemType = getItemType(id)
-
-                  if (itemType === 'item') {
-                    const item = items.find((i) => i.id === id)
-                    return item ? <SortableItem key={id} item={item} /> : null
-                  }
-
-                  if (itemType === 'group') {
-                    const group = groups.find((g) => g.id === id)
-                    return group ? (
-                      <SortableGroup
-                        key={id}
-                        group={group}
-                        dropZones={dropZones.filter((dz) => dz.groupId === id)}
-                      />
-                    ) : null
-                  }
-
-                  return null
-                })}
-              </AnimatePresence>
+          <div className="flex gap-6">
+            {/* Left Column - Items Only */}
+            <div className="w-1/3 p-4 bg-gray-50 rounded-lg border border-gray-200 min-h-[500px]">
+              <h2 className="text-lg font-semibold mb-4 text-gray-700">
+                Items List
+              </h2>
+              <SortableContext
+                items={leftSortableIds}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-1">
+                  <AnimatePresence mode="popLayout">
+                    {leftColumnItems.map((id) => {
+                      const item = items.find((i) => i.id === id)
+                      return item ? <SortableItem key={id} item={item} /> : null
+                    })}
+                    {/* Show an empty state preview if the left column is empty and we're dragging an item */}
+                    {leftColumnItems.length === 0 &&
+                      activeItem?.type === 'item' && (
+                        <div className="p-8 border-2 border-dashed border-gray-300 rounded-md text-center text-gray-500">
+                          Drop here to add to list
+                        </div>
+                      )}
+                  </AnimatePresence>
+                </div>
+              </SortableContext>
             </div>
-          </SortableContext>
+
+            {/* Right Column - Items and Groups */}
+            <div className="w-2/3 p-4 bg-gray-50 rounded-lg border border-gray-200 min-h-[500px]">
+              <h2 className="text-lg font-semibold mb-4 text-gray-700">
+                Items and Groups
+              </h2>
+              <SortableContext
+                items={rightSortableIds}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-1">
+                  <AnimatePresence mode="popLayout">
+                    {rightColumnItems.map((id) => {
+                      const itemType = getItemType(id)
+
+                      if (itemType === 'item') {
+                        const item = items.find((i) => i.id === id)
+                        return item ? (
+                          <SortableItem key={id} item={item} />
+                        ) : null
+                      }
+
+                      if (itemType === 'group') {
+                        const group = groups.find((g) => g.id === id)
+                        return group ? (
+                          <SortableGroup
+                            key={id}
+                            group={group}
+                            dropZones={dropZones.filter(
+                              (dz) => dz.groupId === id
+                            )}
+                          />
+                        ) : null
+                      }
+
+                      return null
+                    })}
+                  </AnimatePresence>
+                </div>
+              </SortableContext>
+            </div>
+          </div>
 
           <DragOverlay>
             <DragOverlayContent item={activeItem} />
@@ -809,10 +1003,12 @@ const DragNDropDemo = () => {
       <div className="mt-8 p-4 bg-gray-50 rounded-md border border-gray-200 text-sm">
         <p className="mb-2 font-medium">Instructions:</p>
         <ul className="list-disc pl-5 space-y-1">
-          <li>Drag items to reorder them in the list</li>
+          <li>Left column: Contains only items (no groups)</li>
+          <li>Right column: Contains both items and groups</li>
+          <li>Drag items between columns</li>
           <li>Drag items into or out of groups</li>
           <li>Drag items between groups</li>
-          <li>Drag groups to reorder them</li>
+          <li>Drag groups to reorder them (right column only)</li>
           <li>
             Use the highlight zones above and below groups to position items
           </li>
