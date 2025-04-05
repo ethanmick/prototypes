@@ -47,6 +47,9 @@ interface DropZone extends BaseItem {
 // Define which column an item is in
 type Column = 'left' | 'right'
 
+// Special ID for empty left column dropzone
+const EMPTY_LEFT_COLUMN_ID = 'empty-left-column-dropzone'
+
 type DraggableItem = Item | Group
 
 // Preview position type
@@ -85,6 +88,27 @@ const DragContext = createContext<DragContextType>({
 const PreviewIndicator: React.FC = () => {
   return (
     <div className="h-1 my-1 bg-blue-500 rounded-full animate-pulse transition-all duration-150" />
+  )
+}
+
+// Component for empty left column state
+const EmptyColumnDropZone: React.FC<{ isActive: boolean }> = ({ isActive }) => {
+  const { setNodeRef } = useSortable({
+    id: EMPTY_LEFT_COLUMN_ID,
+  })
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`p-8 border-2 border-dashed rounded-md text-center 
+        ${
+          isActive
+            ? 'border-blue-500 bg-blue-50 text-blue-700'
+            : 'border-gray-300 text-gray-500'
+        }`}
+    >
+      Drop here to add to list
+    </div>
   )
 }
 
@@ -352,6 +376,11 @@ const DragNDropDemo = () => {
     const isDraggingItem = activeItem?.type === 'item'
     const isDraggingGroup = activeItem?.type === 'group'
 
+    // Special handling for empty left column when dragging an item
+    if (column === 'left' && columnItems.length === 0 && isDraggingItem) {
+      return [EMPTY_LEFT_COLUMN_ID]
+    }
+
     // In the right column, include drop zones when dragging
     if (column === 'right' && (isDraggingItem || isDraggingGroup)) {
       return [...columnItems, ...dropZones.map((dz) => dz.id)]
@@ -435,6 +464,17 @@ const DragNDropDemo = () => {
     const activeId = active.id as string
     const overId = over.id as string
     const activeType = getItemType(activeId)
+
+    // Special handling for empty left column
+    if (overId === EMPTY_LEFT_COLUMN_ID && activeType === 'item') {
+      setPreviewPosition({
+        targetId: EMPTY_LEFT_COLUMN_ID,
+        targetType: 'item',
+        column: 'left',
+      })
+      return
+    }
+
     const overType = getItemType(overId)
 
     // Determine which column we're over
@@ -605,6 +645,45 @@ const DragNDropDemo = () => {
     const overId = over.id as string
 
     if (activeId === overId) {
+      setActiveId(null)
+      setActiveItem(null)
+      setActiveColumn(null)
+      setOverDropZone(null)
+      setPreviewPosition(null)
+      return
+    }
+
+    // Special handling for empty left column
+    if (overId === EMPTY_LEFT_COLUMN_ID) {
+      const draggedItem = items.find((i) => i.id === activeId)
+      if (draggedItem) {
+        // Remove from right column root items if it's there
+        if (rightColumnItems.includes(activeId)) {
+          setRightColumnItems((prevItems) =>
+            prevItems.filter((id) => id !== activeId)
+          )
+        }
+        // Check if it's in a group and remove it
+        else {
+          const updatedGroups = [...groups]
+          groups.forEach((group, index) => {
+            const itemIndex = group.items.findIndex(
+              (item) => item.id === activeId
+            )
+            if (itemIndex >= 0) {
+              updatedGroups[index] = {
+                ...group,
+                items: group.items.filter((item) => item.id !== activeId),
+              }
+            }
+          })
+          setGroups(updatedGroups)
+        }
+
+        // Add to left column
+        setLeftColumnItems([activeId])
+      }
+
       setActiveId(null)
       setActiveItem(null)
       setActiveColumn(null)
@@ -940,12 +1019,14 @@ const DragNDropDemo = () => {
                       const item = items.find((i) => i.id === id)
                       return item ? <SortableItem key={id} item={item} /> : null
                     })}
-                    {/* Show an empty state preview if the left column is empty and we're dragging an item */}
+                    {/* Empty state handling */}
                     {leftColumnItems.length === 0 &&
                       activeItem?.type === 'item' && (
-                        <div className="p-8 border-2 border-dashed border-gray-300 rounded-md text-center text-gray-500">
-                          Drop here to add to list
-                        </div>
+                        <EmptyColumnDropZone
+                          isActive={
+                            previewPosition?.targetId === EMPTY_LEFT_COLUMN_ID
+                          }
+                        />
                       )}
                   </AnimatePresence>
                 </div>

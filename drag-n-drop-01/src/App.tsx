@@ -1,4 +1,4 @@
-import DragNDropDemo from './demos/v10a-columns'
+import DragNDropDemo from './demos/v10a-columns-b'
 
 function App() {
   return <DragNDropDemo />
